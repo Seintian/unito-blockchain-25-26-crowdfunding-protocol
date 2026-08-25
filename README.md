@@ -1,6 +1,6 @@
 # Crowdfunding Protocol - "All-or-Nothing" Smart Contracts
 
-#### Exam project for the Blockchain, Distributed and Decentralized Systems course (INF04422).
+#### Exam project for the Blockchain, Distributed and Decentralized Systems course (INF0422).
 
 A fair, transparent, and intermediary-free decentralized crowdfunding protocol built in Solidity and running on the EVM (Ethereum Virtual Machine).
 
