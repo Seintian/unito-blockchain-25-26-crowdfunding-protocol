@@ -30,7 +30,7 @@ The system strictly enforces "All-or-Nothing" logic while securely managing the 
    npm install
    ```
 
-3. Configure environment variables by creating a `.env` file:
+2. Configure environment variables by creating a `.env` file:
 
    ```bash
    cp .env.example .env
