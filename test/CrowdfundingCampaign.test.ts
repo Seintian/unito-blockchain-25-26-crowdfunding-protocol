@@ -1,0 +1,726 @@
+import { expect } from "chai";
+import { ethers } from "hardhat";
+import { time, loadFixture } from "@nomicfoundation/hardhat-network-helpers";
+import { CrowdfundingCampaign, MockERC20, MaliciousReentrantToken } from "../typechain-types";
+import { SignerWithAddress } from "@nomicfoundation/hardhat-ethers/signers";
+
+describe("CrowdfundingCampaign", function () {
+  const ONE_DAY = 24 * 60 * 60;
+  const RATE_PRECISION = ethers.parseEther("1"); // 1e18
+  const THRESHOLD = ethers.parseEther("1000"); // 1,000 funding tokens
+  const REWARD_RATE = ethers.parseEther("2"); // 2 reward tokens per 1 funding token (2:1 ratio)
+  const REQUIRED_COLLATERAL = (THRESHOLD * REWARD_RATE) / RATE_PRECISION; // 2,000 reward tokens
+
+  async function deployCampaignFixture() {
+    const [deployer, creator, alice, bob, charlie, attacker] = await ethers.getSigners();
+
+    // Deploy mock tokens
+    const MockERC20Factory = await ethers.getContractFactory("MockERC20");
+    const fundingToken = (await MockERC20Factory.deploy("Funding Token", "FND", 18)) as MockERC20;
+    const rewardToken = (await MockERC20Factory.deploy("Reward Token", "RWD", 18)) as MockERC20;
+
+    const latestTime = await time.latest();
+    const deadline = latestTime + ONE_DAY * 7; // 7 days from now
+
+    // Deploy campaign
+    const CampaignFactory = await ethers.getContractFactory("CrowdfundingCampaign");
+    const campaign = (await CampaignFactory.deploy(
+      creator.address,
+      await fundingToken.getAddress(),
+      await rewardToken.getAddress(),
+      THRESHOLD,
+      REWARD_RATE,
+      deadline
+    )) as CrowdfundingCampaign;
+
+    const campaignAddress = await campaign.getAddress();
+
+    // Mint reward tokens to creator and fund the campaign escrow with 100% collateral
+    await rewardToken.mint(creator.address, REQUIRED_COLLATERAL * 2n);
+    await rewardToken.connect(creator).transfer(campaignAddress, REQUIRED_COLLATERAL);
+
+    // Mint funding tokens to backers
+    await fundingToken.mint(alice.address, ethers.parseEther("5000"));
+    await fundingToken.mint(bob.address, ethers.parseEther("5000"));
+    await fundingToken.mint(charlie.address, ethers.parseEther("5000"));
+
+    return {
+      campaign,
+      fundingToken,
+      rewardToken,
+      deployer,
+      creator,
+      alice,
+      bob,
+      charlie,
+      attacker,
+      deadline,
+      campaignAddress,
+    };
+  }
+
+  describe("Deployment & Configuration", function () {
+    it("should initialize parameters correctly", async function () {
+      const { campaign, fundingToken, rewardToken, creator, deadline } = await loadFixture(
+        deployCampaignFixture
+      );
+
+      expect(await campaign.creator()).to.equal(creator.address);
+      expect(await campaign.fundingToken()).to.equal(await fundingToken.getAddress());
+      expect(await campaign.rewardToken()).to.equal(await rewardToken.getAddress());
+      expect(await campaign.threshold()).to.equal(THRESHOLD);
+      expect(await campaign.rewardRate()).to.equal(REWARD_RATE);
+      expect(await campaign.deadline()).to.equal(deadline);
+      expect(await campaign.rewardCollateral()).to.equal(REQUIRED_COLLATERAL);
+      expect(await campaign.state()).to.equal(0); // State.Active
+      expect(await campaign.totalRaised()).to.equal(0);
+    });
+
+    it("should revert if creator address is zero", async function () {
+      const { fundingToken, rewardToken } = await loadFixture(deployCampaignFixture);
+      const CampaignFactory = await ethers.getContractFactory("CrowdfundingCampaign");
+      const latestTime = await time.latest();
+
+      await expect(
+        CampaignFactory.deploy(
+          ethers.ZeroAddress,
+          await fundingToken.getAddress(),
+          await rewardToken.getAddress(),
+          THRESHOLD,
+          REWARD_RATE,
+          latestTime + 100
+        )
+      ).to.be.revertedWithCustomError(CampaignFactory, "InvalidConfiguration");
+    });
+
+    it("should revert if funding or reward token address is zero", async function () {
+      const { creator, fundingToken, rewardToken } = await loadFixture(deployCampaignFixture);
+      const CampaignFactory = await ethers.getContractFactory("CrowdfundingCampaign");
+      const latestTime = await time.latest();
+
+      await expect(
+        CampaignFactory.deploy(
+          creator.address,
+          ethers.ZeroAddress,
+          await rewardToken.getAddress(),
+          THRESHOLD,
+          REWARD_RATE,
+          latestTime + 100
+        )
+      ).to.be.revertedWithCustomError(CampaignFactory, "InvalidConfiguration");
+
+      await expect(
+        CampaignFactory.deploy(
+          creator.address,
+          await fundingToken.getAddress(),
+          ethers.ZeroAddress,
+          THRESHOLD,
+          REWARD_RATE,
+          latestTime + 100
+        )
+      ).to.be.revertedWithCustomError(CampaignFactory, "InvalidConfiguration");
+    });
+
+    it("should revert if threshold or rewardRate is zero", async function () {
+      const { creator, fundingToken, rewardToken } = await loadFixture(deployCampaignFixture);
+      const CampaignFactory = await ethers.getContractFactory("CrowdfundingCampaign");
+      const latestTime = await time.latest();
+
+      await expect(
+        CampaignFactory.deploy(
+          creator.address,
+          await fundingToken.getAddress(),
+          await rewardToken.getAddress(),
+          0,
+          REWARD_RATE,
+          latestTime + 100
+        )
+      ).to.be.revertedWithCustomError(CampaignFactory, "InvalidConfiguration");
+
+      await expect(
+        CampaignFactory.deploy(
+          creator.address,
+          await fundingToken.getAddress(),
+          await rewardToken.getAddress(),
+          THRESHOLD,
+          0,
+          latestTime + 100
+        )
+      ).to.be.revertedWithCustomError(CampaignFactory, "InvalidConfiguration");
+    });
+
+    it("should revert if deadline is in the past or present", async function () {
+      const { creator, fundingToken, rewardToken } = await loadFixture(deployCampaignFixture);
+      const CampaignFactory = await ethers.getContractFactory("CrowdfundingCampaign");
+      const latestTime = await time.latest();
+
+      await expect(
+        CampaignFactory.deploy(
+          creator.address,
+          await fundingToken.getAddress(),
+          await rewardToken.getAddress(),
+          THRESHOLD,
+          REWARD_RATE,
+          latestTime - 10
+        )
+      ).to.be.revertedWithCustomError(CampaignFactory, "DeadlinePassed");
+    });
+
+    it("should revert if rewardCollateral calculates to zero", async function () {
+      const { creator, fundingToken, rewardToken } = await loadFixture(deployCampaignFixture);
+      const CampaignFactory = await ethers.getContractFactory("CrowdfundingCampaign");
+      const latestTime = await time.latest();
+
+      await expect(
+        CampaignFactory.deploy(
+          creator.address,
+          await fundingToken.getAddress(),
+          await rewardToken.getAddress(),
+          1, // extremely small threshold
+          1, // extremely small rate
+          latestTime + 100
+        )
+      ).to.be.revertedWithCustomError(CampaignFactory, "InvalidConfiguration");
+    });
+  });
+
+  describe("Pledging", function () {
+    it("should allow a backer to pledge funding tokens", async function () {
+      const { campaign, fundingToken, alice, campaignAddress } = await loadFixture(
+        deployCampaignFixture
+      );
+      const pledgeAmount = ethers.parseEther("300");
+
+      await fundingToken.connect(alice).approve(campaignAddress, pledgeAmount);
+
+      await expect(campaign.connect(alice).pledge(pledgeAmount))
+        .to.emit(campaign, "Pledged")
+        .withArgs(alice.address, pledgeAmount, pledgeAmount);
+
+      expect(await campaign.contributions(alice.address)).to.equal(pledgeAmount);
+      expect(await campaign.totalRaised()).to.equal(pledgeAmount);
+      expect(await campaign.state()).to.equal(0); // State.Active
+      expect(await fundingToken.balanceOf(campaignAddress)).to.equal(pledgeAmount);
+    });
+
+    it("should revert if pledging zero amount", async function () {
+      const { campaign, alice } = await loadFixture(deployCampaignFixture);
+
+      await expect(campaign.connect(alice).pledge(0)).to.be.revertedWithCustomError(
+        campaign,
+        "ZeroAmount"
+      );
+    });
+
+    it("should revert if pledge exceeds threshold", async function () {
+      const { campaign, fundingToken, alice, campaignAddress } = await loadFixture(
+        deployCampaignFixture
+      );
+      const excessivePledge = THRESHOLD + 1n;
+
+      await fundingToken.connect(alice).approve(campaignAddress, excessivePledge);
+
+      await expect(campaign.connect(alice).pledge(excessivePledge)).to.be.revertedWithCustomError(
+        campaign,
+        "ThresholdExceeded"
+      );
+    });
+
+    it("should transition state to Successful when pledge meets threshold exactly", async function () {
+      const { campaign, fundingToken, alice, bob, campaignAddress } = await loadFixture(
+        deployCampaignFixture
+      );
+
+      const pledgeAlice = ethers.parseEther("600");
+      const pledgeBob = ethers.parseEther("400");
+
+      await fundingToken.connect(alice).approve(campaignAddress, pledgeAlice);
+      await campaign.connect(alice).pledge(pledgeAlice);
+
+      await fundingToken.connect(bob).approve(campaignAddress, pledgeBob);
+      await campaign.connect(bob).pledge(pledgeBob);
+
+      expect(await campaign.totalRaised()).to.equal(THRESHOLD);
+      expect(await campaign.state()).to.equal(1); // State.Successful
+    });
+  });
+
+  describe("Flexible Early Withdrawal Before Threshold", function () {
+    it("should allow partial and full withdrawals while totalRaised < threshold", async function () {
+      const { campaign, fundingToken, alice, campaignAddress } = await loadFixture(
+        deployCampaignFixture
+      );
+      const pledgeAmount = ethers.parseEther("400");
+      const partialWithdraw = ethers.parseEther("150");
+
+      await fundingToken.connect(alice).approve(campaignAddress, pledgeAmount);
+      await campaign.connect(alice).pledge(pledgeAmount);
+
+      const initialAliceBalance = await fundingToken.balanceOf(alice.address);
+
+      // Partial withdrawal
+      await expect(campaign.connect(alice).withdrawBeforeThreshold(partialWithdraw))
+        .to.emit(campaign, "WithdrawnBeforeThreshold")
+        .withArgs(alice.address, partialWithdraw, pledgeAmount - partialWithdraw);
+
+      expect(await campaign.contributions(alice.address)).to.equal(pledgeAmount - partialWithdraw);
+      expect(await campaign.totalRaised()).to.equal(pledgeAmount - partialWithdraw);
+      expect(await fundingToken.balanceOf(alice.address)).to.equal(
+        initialAliceBalance + partialWithdraw
+      );
+
+      // Full remaining withdrawal
+      const remaining = pledgeAmount - partialWithdraw;
+      await campaign.connect(alice).withdrawBeforeThreshold(remaining);
+
+      expect(await campaign.contributions(alice.address)).to.equal(0);
+      expect(await campaign.totalRaised()).to.equal(0);
+    });
+
+    it("should revert if withdrawing zero", async function () {
+      const { campaign, alice } = await loadFixture(deployCampaignFixture);
+
+      await expect(campaign.connect(alice).withdrawBeforeThreshold(0)).to.be.revertedWithCustomError(
+        campaign,
+        "ZeroAmount"
+      );
+    });
+
+    it("should revert if withdrawing more than contributed", async function () {
+      const { campaign, fundingToken, alice, campaignAddress } = await loadFixture(
+        deployCampaignFixture
+      );
+      const pledgeAmount = ethers.parseEther("200");
+
+      await fundingToken.connect(alice).approve(campaignAddress, pledgeAmount);
+      await campaign.connect(alice).pledge(pledgeAmount);
+
+      await expect(
+        campaign.connect(alice).withdrawBeforeThreshold(ethers.parseEther("201"))
+      ).to.be.revertedWithCustomError(campaign, "InsufficientContribution");
+    });
+
+    it("should disallow early withdrawal once threshold is reached", async function () {
+      const { campaign, fundingToken, alice, campaignAddress } = await loadFixture(
+        deployCampaignFixture
+      );
+
+      await fundingToken.connect(alice).approve(campaignAddress, THRESHOLD);
+      await campaign.connect(alice).pledge(THRESHOLD);
+
+      expect(await campaign.state()).to.equal(1); // State.Successful
+
+      await expect(
+        campaign.connect(alice).withdrawBeforeThreshold(ethers.parseEther("100"))
+      ).to.be.revertedWithCustomError(campaign, "CampaignNotActive");
+    });
+
+    it("should disallow early withdrawal once deadline has passed", async function () {
+      const { campaign, fundingToken, alice, deadline, campaignAddress } = await loadFixture(
+        deployCampaignFixture
+      );
+
+      const pledgeAmount = ethers.parseEther("200");
+      await fundingToken.connect(alice).approve(campaignAddress, pledgeAmount);
+      await campaign.connect(alice).pledge(pledgeAmount);
+
+      // Advance time past deadline
+      await time.increaseTo(deadline + 1);
+
+      expect(await campaign.state()).to.equal(2); // State.Expired
+
+      await expect(
+        campaign.connect(alice).withdrawBeforeThreshold(pledgeAmount)
+      ).to.be.revertedWithCustomError(campaign, "CampaignNotActive");
+    });
+  });
+
+  describe("Successful Campaign Settlement", function () {
+    async function deploySuccessfulCampaignFixture() {
+      const base = await deployCampaignFixture();
+      const { campaign, fundingToken, alice, bob, campaignAddress } = base;
+
+      const pledgeAlice = ethers.parseEther("700");
+      const pledgeBob = ethers.parseEther("300");
+
+      await fundingToken.connect(alice).approve(campaignAddress, pledgeAlice);
+      await campaign.connect(alice).pledge(pledgeAlice);
+
+      await fundingToken.connect(bob).approve(campaignAddress, pledgeBob);
+      await campaign.connect(bob).pledge(pledgeBob);
+
+      return { ...base, pledgeAlice, pledgeBob };
+    }
+
+    it("should allow backers to claim their reward tokens", async function () {
+      const { campaign, rewardToken, alice, pledgeAlice } = await loadFixture(
+        deploySuccessfulCampaignFixture
+      );
+
+      const expectedReward = (pledgeAlice * REWARD_RATE) / RATE_PRECISION; // 700 * 2 = 1400
+
+      await expect(campaign.connect(alice).claimReward())
+        .to.emit(campaign, "RewardsClaimed")
+        .withArgs(alice.address, expectedReward);
+
+      expect(await rewardToken.balanceOf(alice.address)).to.equal(expectedReward);
+      expect(await campaign.rewardsClaimed(alice.address)).to.be.true;
+    });
+
+    it("should revert if backer attempts to double-claim rewards", async function () {
+      const { campaign, alice } = await loadFixture(deploySuccessfulCampaignFixture);
+
+      await campaign.connect(alice).claimReward();
+
+      await expect(campaign.connect(alice).claimReward()).to.be.revertedWithCustomError(
+        campaign,
+        "RewardsAlreadyClaimed"
+      );
+    });
+
+    it("should revert if non-backer calls claimReward", async function () {
+      const { campaign, charlie } = await loadFixture(deploySuccessfulCampaignFixture);
+
+      await expect(campaign.connect(charlie).claimReward()).to.be.revertedWithCustomError(
+        campaign,
+        "InsufficientContribution"
+      );
+    });
+
+    it("should allow creator to claim total raised funding tokens", async function () {
+      const { campaign, fundingToken, creator } = await loadFixture(
+        deploySuccessfulCampaignFixture
+      );
+
+      const initialCreatorFunding = await fundingToken.balanceOf(creator.address);
+
+      await expect(campaign.connect(creator).claimFunds())
+        .to.emit(campaign, "CreatorFundsClaimed")
+        .withArgs(creator.address, THRESHOLD);
+
+      expect(await fundingToken.balanceOf(creator.address)).to.equal(
+        initialCreatorFunding + THRESHOLD
+      );
+      expect(await campaign.creatorFundsClaimed()).to.be.true;
+    });
+
+    it("should revert if creator attempts to double-claim funds", async function () {
+      const { campaign, creator } = await loadFixture(deploySuccessfulCampaignFixture);
+
+      await campaign.connect(creator).claimFunds();
+
+      await expect(campaign.connect(creator).claimFunds()).to.be.revertedWithCustomError(
+        campaign,
+        "CreatorFundsAlreadyClaimed"
+      );
+    });
+
+    it("should revert if non-creator calls claimFunds", async function () {
+      const { campaign, alice } = await loadFixture(deploySuccessfulCampaignFixture);
+
+      await expect(campaign.connect(alice).claimFunds()).to.be.revertedWithCustomError(
+        campaign,
+        "Unauthorized"
+      );
+    });
+
+    it("should prevent refunds or collateral recovery when campaign is successful", async function () {
+      const { campaign, alice, creator, deadline } = await loadFixture(
+        deploySuccessfulCampaignFixture
+      );
+
+      await expect(campaign.connect(alice).claimRefund()).to.be.revertedWithCustomError(
+        campaign,
+        "CampaignNotExpired"
+      );
+
+      await expect(campaign.connect(creator).recoverCollateral()).to.be.revertedWithCustomError(
+        campaign,
+        "CampaignNotExpired"
+      );
+
+      // Even if time advances far past deadline, state remains Successful!
+      await time.increaseTo(deadline + ONE_DAY * 10);
+      expect(await campaign.state()).to.equal(1); // State.Successful
+
+      await expect(campaign.connect(alice).claimRefund()).to.be.revertedWithCustomError(
+        campaign,
+        "CampaignNotExpired"
+      );
+
+      await expect(campaign.connect(creator).recoverCollateral()).to.be.revertedWithCustomError(
+        campaign,
+        "CampaignNotExpired"
+      );
+    });
+  });
+
+  describe("Expired / Failed Campaign Settlement", function () {
+    async function deployExpiredCampaignFixture() {
+      const base = await deployCampaignFixture();
+      const { campaign, fundingToken, alice, deadline, campaignAddress } = base;
+
+      // Alice pledges only 400 (threshold is 1000)
+      const pledgeAlice = ethers.parseEther("400");
+      await fundingToken.connect(alice).approve(campaignAddress, pledgeAlice);
+      await campaign.connect(alice).pledge(pledgeAlice);
+
+      // Advance time past deadline
+      await time.increaseTo(deadline + 10);
+
+      return { ...base, pledgeAlice };
+    }
+
+    it("should transition state to Expired", async function () {
+      const { campaign } = await loadFixture(deployExpiredCampaignFixture);
+      expect(await campaign.state()).to.equal(2); // State.Expired
+    });
+
+    it("should revert if attempting to pledge after expiration", async function () {
+      const { campaign, fundingToken, bob, campaignAddress } = await loadFixture(
+        deployExpiredCampaignFixture
+      );
+
+      await fundingToken.connect(bob).approve(campaignAddress, ethers.parseEther("100"));
+      await expect(
+        campaign.connect(bob).pledge(ethers.parseEther("100"))
+      ).to.be.revertedWithCustomError(campaign, "CampaignNotActive");
+    });
+
+    it("should allow backers to claim 100% refund of contributed funding tokens", async function () {
+      const { campaign, fundingToken, alice, pledgeAlice } = await loadFixture(
+        deployExpiredCampaignFixture
+      );
+
+      const initialBalance = await fundingToken.balanceOf(alice.address);
+
+      await expect(campaign.connect(alice).claimRefund())
+        .to.emit(campaign, "RefundClaimed")
+        .withArgs(alice.address, pledgeAlice);
+
+      expect(await fundingToken.balanceOf(alice.address)).to.equal(initialBalance + pledgeAlice);
+      expect(await campaign.refundsClaimed(alice.address)).to.be.true;
+    });
+
+    it("should revert if backer attempts double-refund", async function () {
+      const { campaign, alice } = await loadFixture(deployExpiredCampaignFixture);
+
+      await campaign.connect(alice).claimRefund();
+
+      await expect(campaign.connect(alice).claimRefund()).to.be.revertedWithCustomError(
+        campaign,
+        "RefundsAlreadyClaimed"
+      );
+    });
+
+    it("should revert if non-backer calls claimRefund", async function () {
+      const { campaign, charlie } = await loadFixture(deployExpiredCampaignFixture);
+
+      await expect(campaign.connect(charlie).claimRefund()).to.be.revertedWithCustomError(
+        campaign,
+        "InsufficientContribution"
+      );
+    });
+
+    it("should allow creator to recover 100% of reward collateral", async function () {
+      const { campaign, rewardToken, creator } = await loadFixture(deployExpiredCampaignFixture);
+
+      const initialRewardBalance = await rewardToken.balanceOf(creator.address);
+
+      await expect(campaign.connect(creator).recoverCollateral())
+        .to.emit(campaign, "CreatorCollateralRecovered")
+        .withArgs(creator.address, REQUIRED_COLLATERAL);
+
+      expect(await rewardToken.balanceOf(creator.address)).to.equal(
+        initialRewardBalance + REQUIRED_COLLATERAL
+      );
+      expect(await campaign.creatorCollateralRecovered()).to.be.true;
+    });
+
+    it("should revert if creator attempts double-recovery of collateral", async function () {
+      const { campaign, creator } = await loadFixture(deployExpiredCampaignFixture);
+
+      await campaign.connect(creator).recoverCollateral();
+
+      await expect(campaign.connect(creator).recoverCollateral()).to.be.revertedWithCustomError(
+        campaign,
+        "CreatorCollateralAlreadyRefunded"
+      );
+    });
+
+    it("should revert if non-creator calls recoverCollateral", async function () {
+      const { campaign, alice } = await loadFixture(deployExpiredCampaignFixture);
+
+      await expect(campaign.connect(alice).recoverCollateral()).to.be.revertedWithCustomError(
+        campaign,
+        "Unauthorized"
+      );
+    });
+
+    it("should prevent claims of rewards or funds when campaign is expired", async function () {
+      const { campaign, alice, creator } = await loadFixture(deployExpiredCampaignFixture);
+
+      await expect(campaign.connect(alice).claimReward()).to.be.revertedWithCustomError(
+        campaign,
+        "CampaignNotSuccessful"
+      );
+
+      await expect(campaign.connect(creator).claimFunds()).to.be.revertedWithCustomError(
+        campaign,
+        "CampaignNotSuccessful"
+      );
+    });
+  });
+
+  describe("Security: Reentrancy Attack Protection", function () {
+    it("should block reentrancy attack on claimRefund via MaliciousReentrantToken", async function () {
+      const [, creator, attacker] = await ethers.getSigners();
+
+      // Deploy malicious funding token
+      const MaliciousFactory = await ethers.getContractFactory("MaliciousReentrantToken");
+      const maliciousFunding = (await MaliciousFactory.deploy()) as MaliciousReentrantToken;
+
+      const MockERC20Factory = await ethers.getContractFactory("MockERC20");
+      const rewardToken = (await MockERC20Factory.deploy("Reward Token", "RWD", 18)) as MockERC20;
+
+      const latestTime = await time.latest();
+      const deadline = latestTime + ONE_DAY;
+
+      const CampaignFactory = await ethers.getContractFactory("CrowdfundingCampaign");
+      const campaign = (await CampaignFactory.deploy(
+        creator.address,
+        await maliciousFunding.getAddress(),
+        await rewardToken.getAddress(),
+        THRESHOLD,
+        REWARD_RATE,
+        deadline
+      )) as CrowdfundingCampaign;
+
+      const campaignAddress = await campaign.getAddress();
+
+      // Fund collateral
+      await rewardToken.mint(campaignAddress, REQUIRED_COLLATERAL);
+
+      // Attacker pledges
+      const pledgeAmount = ethers.parseEther("100");
+      await maliciousFunding.mint(attacker.address, pledgeAmount);
+      await maliciousFunding.connect(attacker).approve(campaignAddress, pledgeAmount);
+      await campaign.connect(attacker).pledge(pledgeAmount);
+
+      // Expire campaign
+      await time.increaseTo(deadline + 10);
+
+      // Arm malicious token to attack on refund
+      await maliciousFunding.setAttackConfig(campaignAddress, 1 /* Refund */, true);
+
+      // When campaign executes safeTransfer, malicious token reenters claimRefund()
+      // OpenZeppelin ReentrancyGuard should revert with ReentrancyGuardReentrantCall()
+      await expect(campaign.connect(attacker).claimRefund()).to.be.revertedWithCustomError(
+        campaign,
+        "ReentrancyGuardReentrantCall"
+      );
+    });
+
+    it("should block reentrancy attack on withdrawBeforeThreshold via MaliciousReentrantToken", async function () {
+      const [, creator, attacker] = await ethers.getSigners();
+
+      const MaliciousFactory = await ethers.getContractFactory("MaliciousReentrantToken");
+      const maliciousFunding = (await MaliciousFactory.deploy()) as MaliciousReentrantToken;
+
+      const MockERC20Factory = await ethers.getContractFactory("MockERC20");
+      const rewardToken = (await MockERC20Factory.deploy("Reward Token", "RWD", 18)) as MockERC20;
+
+      const latestTime = await time.latest();
+      const deadline = latestTime + ONE_DAY;
+
+      const CampaignFactory = await ethers.getContractFactory("CrowdfundingCampaign");
+      const campaign = (await CampaignFactory.deploy(
+        creator.address,
+        await maliciousFunding.getAddress(),
+        await rewardToken.getAddress(),
+        THRESHOLD,
+        REWARD_RATE,
+        deadline
+      )) as CrowdfundingCampaign;
+
+      const campaignAddress = await campaign.getAddress();
+      await rewardToken.mint(campaignAddress, REQUIRED_COLLATERAL);
+
+      const pledgeAmount = ethers.parseEther("100");
+      await maliciousFunding.mint(attacker.address, pledgeAmount);
+      await maliciousFunding.connect(attacker).approve(campaignAddress, pledgeAmount);
+      await campaign.connect(attacker).pledge(pledgeAmount);
+
+      // Arm malicious token to attack on withdraw
+      await maliciousFunding.setAttackConfig(campaignAddress, 0 /* Withdraw */, true);
+
+      await expect(
+        campaign.connect(attacker).withdrawBeforeThreshold(ethers.parseEther("50"))
+      ).to.be.revertedWithCustomError(campaign, "ReentrancyGuardReentrantCall");
+    });
+  });
+
+  describe("MockERC20 Faucet & Utility", function () {
+    it("should allow users to call faucet and check decimals", async function () {
+      const [, , user] = await ethers.getSigners();
+      const MockERC20Factory = await ethers.getContractFactory("MockERC20");
+      const token = (await MockERC20Factory.deploy("Test Token", "TST", 6)) as MockERC20;
+
+      expect(await token.decimals()).to.equal(6);
+      await token.connect(user).faucet(1000n);
+      expect(await token.balanceOf(user.address)).to.equal(1000n);
+    });
+  });
+
+  describe("Multi-Decimal Precision Handling", function () {
+    it("should correctly handle 6-decimal USDC funding token and 18-decimal reward token", async function () {
+      const [, creator, backer] = await ethers.getSigners();
+
+      // USDC has 6 decimals
+      const MockERC20Factory = await ethers.getContractFactory("MockERC20");
+      const usdcFunding = (await MockERC20Factory.deploy("USD Coin", "USDC", 6)) as MockERC20;
+      const projectReward = (await MockERC20Factory.deploy("Project Token", "PRJ", 18)) as MockERC20;
+
+      const latestTime = await time.latest();
+      const deadline = latestTime + ONE_DAY * 5;
+
+      // Threshold: 50,000 USDC = 50,000 * 10^6 units
+      const usdcThreshold = 50_000n * 10n ** 6n;
+
+      // Rate: 1 whole USDC gives 10 whole PRJ tokens
+      // 10^6 raw USDC -> 10 * 10^18 raw PRJ
+      // rewardRate = (10 * 10^18 * 10^18) / 10^6 = 10^31
+      const normalizedRate = ethers.parseUnits("10", 30); // 10 * 1e30
+
+      const requiredRewardCollateral = (usdcThreshold * normalizedRate) / RATE_PRECISION;
+      // 50,000 * 10^6 * 10 * 10^30 / 10^18 = 500,000 * 10^18 (500,000 whole PRJ tokens)
+      expect(requiredRewardCollateral).to.equal(ethers.parseEther("500000"));
+
+      const CampaignFactory = await ethers.getContractFactory("CrowdfundingCampaign");
+      const multiDecCampaign = (await CampaignFactory.deploy(
+        creator.address,
+        await usdcFunding.getAddress(),
+        await projectReward.getAddress(),
+        usdcThreshold,
+        normalizedRate,
+        deadline
+      )) as CrowdfundingCampaign;
+
+      const campaignAddress = await multiDecCampaign.getAddress();
+
+      // Fund collateral
+      await projectReward.mint(campaignAddress, requiredRewardCollateral);
+
+      // Backer pledges 5,000 USDC (10% of threshold)
+      const pledgeAmount = 5_000n * 10n ** 6n;
+      await usdcFunding.mint(backer.address, pledgeAmount);
+      await usdcFunding.connect(backer).approve(campaignAddress, pledgeAmount);
+      await multiDecCampaign.connect(backer).pledge(pledgeAmount);
+
+      const expectedReward = (pledgeAmount * normalizedRate) / RATE_PRECISION;
+      // 5,000 * 10 = 50,000 whole PRJ tokens (50,000 * 10^18)
+      expect(expectedReward).to.equal(ethers.parseEther("50000"));
+      expect(await multiDecCampaign.calculateReward(pledgeAmount)).to.equal(expectedReward);
+    });
+  });
+});

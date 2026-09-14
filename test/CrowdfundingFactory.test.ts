@@ -1,0 +1,220 @@
+import { expect } from "chai";
+import { ethers } from "hardhat";
+import { loadFixture } from "@nomicfoundation/hardhat-network-helpers";
+import { CrowdfundingFactory, MockERC20 } from "../typechain-types";
+
+describe("CrowdfundingFactory", function () {
+  const ONE_DAY = 24 * 60 * 60;
+  const RATE_PRECISION = ethers.parseEther("1");
+  const THRESHOLD = ethers.parseEther("1000");
+  const REWARD_RATE = ethers.parseEther("2");
+  const REQUIRED_COLLATERAL = (THRESHOLD * REWARD_RATE) / RATE_PRECISION; // 2,000 tokens
+
+  async function deployFactoryFixture() {
+    const [deployer, creator1, creator2, backer] = await ethers.getSigners();
+
+    const MockERC20Factory = await ethers.getContractFactory("MockERC20");
+    const fundingToken = (await MockERC20Factory.deploy("Funding Token", "FND", 18)) as MockERC20;
+    const rewardToken = (await MockERC20Factory.deploy("Reward Token", "RWD", 18)) as MockERC20;
+
+    const Factory = await ethers.getContractFactory("CrowdfundingFactory");
+    const factory = (await Factory.deploy()) as CrowdfundingFactory;
+    const factoryAddress = await factory.getAddress();
+
+    // Mint reward tokens to creators
+    await rewardToken.mint(creator1.address, ethers.parseEther("10000"));
+    await rewardToken.mint(creator2.address, ethers.parseEther("10000"));
+
+    return {
+      factory,
+      fundingToken,
+      rewardToken,
+      deployer,
+      creator1,
+      creator2,
+      backer,
+      factoryAddress,
+    };
+  }
+
+  describe("Initialization", function () {
+    it("should start with 0 deployed campaigns", async function () {
+      const { factory } = await loadFixture(deployFactoryFixture);
+      expect(await factory.getDeployedCampaignsCount()).to.equal(0);
+      expect(await factory.getDeployedCampaigns()).to.deep.equal([]);
+    });
+  });
+
+  describe("Validation & Errors", function () {
+    it("should revert if token address is zero", async function () {
+      const { factory, rewardToken } = await loadFixture(deployFactoryFixture);
+
+      await expect(
+        factory.createCampaign(
+          ethers.ZeroAddress,
+          await rewardToken.getAddress(),
+          THRESHOLD,
+          REWARD_RATE,
+          ONE_DAY * 7
+        )
+      ).to.be.revertedWithCustomError(factory, "InvalidTokenAddress");
+
+      await expect(
+        factory.createCampaign(
+          await rewardToken.getAddress(),
+          ethers.ZeroAddress,
+          THRESHOLD,
+          REWARD_RATE,
+          ONE_DAY * 7
+        )
+      ).to.be.revertedWithCustomError(factory, "InvalidTokenAddress");
+    });
+
+    it("should revert if threshold is zero", async function () {
+      const { factory, fundingToken, rewardToken } = await loadFixture(deployFactoryFixture);
+
+      await expect(
+        factory.createCampaign(
+          await fundingToken.getAddress(),
+          await rewardToken.getAddress(),
+          0,
+          REWARD_RATE,
+          ONE_DAY * 7
+        )
+      ).to.be.revertedWithCustomError(factory, "InvalidThreshold");
+    });
+
+    it("should revert if rewardRate is zero or results in 0 collateral", async function () {
+      const { factory, fundingToken, rewardToken } = await loadFixture(deployFactoryFixture);
+
+      await expect(
+        factory.createCampaign(
+          await fundingToken.getAddress(),
+          await rewardToken.getAddress(),
+          THRESHOLD,
+          0,
+          ONE_DAY * 7
+        )
+      ).to.be.revertedWithCustomError(factory, "InvalidRewardRate");
+
+      await expect(
+        factory.createCampaign(
+          await fundingToken.getAddress(),
+          await rewardToken.getAddress(),
+          1,
+          1,
+          ONE_DAY * 7
+        )
+      ).to.be.revertedWithCustomError(factory, "InvalidRewardRate");
+    });
+
+    it("should revert if duration is zero", async function () {
+      const { factory, fundingToken, rewardToken } = await loadFixture(deployFactoryFixture);
+
+      await expect(
+        factory.createCampaign(
+          await fundingToken.getAddress(),
+          await rewardToken.getAddress(),
+          THRESHOLD,
+          REWARD_RATE,
+          0
+        )
+      ).to.be.revertedWithCustomError(factory, "InvalidDuration");
+    });
+
+    it("should revert if creator has not approved sufficient reward tokens", async function () {
+      const { factory, fundingToken, rewardToken, creator1 } = await loadFixture(
+        deployFactoryFixture
+      );
+
+      // No approval given
+      await expect(
+        factory.connect(creator1).createCampaign(
+          await fundingToken.getAddress(),
+          await rewardToken.getAddress(),
+          THRESHOLD,
+          REWARD_RATE,
+          ONE_DAY * 7
+        )
+      ).to.be.reverted;
+    });
+  });
+
+  describe("Successful Campaign Creation", function () {
+    it("should create campaign, lock collateral, and register instance", async function () {
+      const { factory, fundingToken, rewardToken, creator1, factoryAddress } = await loadFixture(
+        deployFactoryFixture
+      );
+
+      // Creator approves factory to transfer collateral
+      await rewardToken.connect(creator1).approve(factoryAddress, REQUIRED_COLLATERAL);
+
+      const tx = await factory.connect(creator1).createCampaign(
+        await fundingToken.getAddress(),
+        await rewardToken.getAddress(),
+        THRESHOLD,
+        REWARD_RATE,
+        ONE_DAY * 7
+      );
+
+      const receipt = await tx.wait();
+      expect(receipt).to.not.be.null;
+
+      // Verify registry updates
+      expect(await factory.getDeployedCampaignsCount()).to.equal(1);
+      const deployedCampaigns = await factory.getDeployedCampaigns();
+      const campaignAddress = deployedCampaigns[0];
+
+      expect(await factory.getCreatorCampaignsCount(creator1.address)).to.equal(1);
+      const creatorCampaigns = await factory.getCreatorCampaigns(creator1.address);
+      expect(creatorCampaigns[0]).to.equal(campaignAddress);
+
+      // Verify collateral was transferred into the campaign contract
+      expect(await rewardToken.balanceOf(campaignAddress)).to.equal(REQUIRED_COLLATERAL);
+
+      // Verify campaign contract state
+      const CampaignFactory = await ethers.getContractFactory("CrowdfundingCampaign");
+      const campaign = CampaignFactory.attach(campaignAddress) as any;
+      expect(await campaign.creator()).to.equal(creator1.address);
+      expect(await campaign.threshold()).to.equal(THRESHOLD);
+      expect(await campaign.rewardCollateral()).to.equal(REQUIRED_COLLATERAL);
+    });
+
+    it("should support multiple creators and indexing", async function () {
+      const { factory, fundingToken, rewardToken, creator1, creator2, factoryAddress } =
+        await loadFixture(deployFactoryFixture);
+
+      await rewardToken.connect(creator1).approve(factoryAddress, REQUIRED_COLLATERAL * 2n);
+      await rewardToken.connect(creator2).approve(factoryAddress, REQUIRED_COLLATERAL);
+
+      // Creator 1 creates 2 campaigns
+      await factory.connect(creator1).createCampaign(
+        await fundingToken.getAddress(),
+        await rewardToken.getAddress(),
+        THRESHOLD,
+        REWARD_RATE,
+        ONE_DAY * 3
+      );
+      await factory.connect(creator1).createCampaign(
+        await fundingToken.getAddress(),
+        await rewardToken.getAddress(),
+        THRESHOLD,
+        REWARD_RATE,
+        ONE_DAY * 5
+      );
+
+      // Creator 2 creates 1 campaign
+      await factory.connect(creator2).createCampaign(
+        await fundingToken.getAddress(),
+        await rewardToken.getAddress(),
+        THRESHOLD,
+        REWARD_RATE,
+        ONE_DAY * 10
+      );
+
+      expect(await factory.getDeployedCampaignsCount()).to.equal(3);
+      expect(await factory.getCreatorCampaignsCount(creator1.address)).to.equal(2);
+      expect(await factory.getCreatorCampaignsCount(creator2.address)).to.equal(1);
+    });
+  });
+});
