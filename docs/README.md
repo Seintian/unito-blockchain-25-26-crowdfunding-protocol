@@ -10,6 +10,8 @@ Welcome to the comprehensive technical and theoretical documentation of **Crowdf
 
 - [**Theoretical Foundations & Comprehensive Protocol Specification**](reports/CROWDFUNDING_THEORY_AND_SPECIFICATION_REPORT.md):
   EVM execution engine, account-based state machines, microeconomics of Assurance Contracts (Provision Point Mechanisms), dominant strategy equilibria, formal protocol invariants, dual-token collateral mathematics, and EVM security threat modeling.
+- [**Security Audit & Gas Optimization Report**](reports/SECURITY_AUDIT_AND_OPTIMIZATION_REPORT.md):
+  Comprehensive vulnerability assessment, static analysis triage, anti-reentrancy defense verification, fee-on-transfer hardening, and gas benchmarks.
 
 ### 2. Architectural Decision Records (`docs/decisions/`)
 
@@ -30,7 +32,7 @@ Welcome to the comprehensive technical and theoretical documentation of **Crowdf
 # Compile contracts with Hardhat
 npm run compile
 
-# Run comprehensive test suite (43 unit & invariant tests)
+# Run comprehensive test suite (45 unit & invariant tests)
 npm run test
 
 # Run code coverage (100% statements & lines on core contracts)
