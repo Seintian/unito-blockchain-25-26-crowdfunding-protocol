@@ -65,4 +65,5 @@ interface ICrowdfundingCampaign {
     function creatorFundsClaimed() external view returns (bool);
     function creatorCollateralRecovered() external view returns (bool);
     function calculateReward(uint256 contributionAmount) external view returns (uint256);
+    function remainingToThreshold() external view returns (uint256);
 }

@@ -86,7 +86,12 @@ contract CrowdfundingFactory is ICrowdfundingFactory {
         );
 
         // Secure upfront escrow collateral from creator
+        uint256 balanceBefore = IERC20(rewardToken).balanceOf(campaignAddress);
         IERC20(rewardToken).safeTransferFrom(msg.sender, campaignAddress, rewardCollateral);
+        uint256 actualCollateral = IERC20(rewardToken).balanceOf(campaignAddress) - balanceBefore;
+        if (actualCollateral < rewardCollateral) {
+            revert InsufficientCollateral();
+        }
     }
 
     /**

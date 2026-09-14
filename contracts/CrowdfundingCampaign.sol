@@ -271,4 +271,15 @@ contract CrowdfundingCampaign is ICrowdfundingCampaign, ReentrancyGuard {
     function calculateReward(uint256 contributionAmount) public view override returns (uint256) {
         return (contributionAmount * rewardRate) / RATE_PRECISION;
     }
+
+    /**
+     * @notice Returns remaining funding tokens needed to meet the threshold.
+     * @return 0 if threshold is met or exceeded, otherwise threshold - totalRaised
+     */
+    function remainingToThreshold() external view override returns (uint256) {
+        if (totalRaised >= threshold) {
+            return 0;
+        }
+        return threshold - totalRaised;
+    }
 }

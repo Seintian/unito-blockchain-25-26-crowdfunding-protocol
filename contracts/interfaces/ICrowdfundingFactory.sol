@@ -21,6 +21,7 @@ interface ICrowdfundingFactory {
     error InvalidThreshold();
     error InvalidRewardRate();
     error InvalidDuration();
+    error InsufficientCollateral();
 
     function createCampaign(
         address fundingToken,

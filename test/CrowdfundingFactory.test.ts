@@ -138,6 +138,28 @@ describe("CrowdfundingFactory", function () {
         )
       ).to.be.reverted;
     });
+
+    it("should revert with InsufficientCollateral if reward token deducts a fee on transfer", async function () {
+      const { factory, fundingToken, creator1, factoryAddress } = await loadFixture(
+        deployFactoryFixture
+      );
+
+      const MockFeeFactory = await ethers.getContractFactory("MockFeeToken");
+      const feeToken = await MockFeeFactory.deploy();
+
+      await feeToken.mint(creator1.address, REQUIRED_COLLATERAL * 2n);
+      await feeToken.connect(creator1).approve(factoryAddress, REQUIRED_COLLATERAL * 2n);
+
+      await expect(
+        factory.connect(creator1).createCampaign(
+          await fundingToken.getAddress(),
+          await feeToken.getAddress(),
+          THRESHOLD,
+          REWARD_RATE,
+          ONE_DAY * 7
+        )
+      ).to.be.revertedWithCustomError(factory, "InsufficientCollateral");
+    });
   });
 
   describe("Successful Campaign Creation", function () {

@@ -242,6 +242,21 @@ describe("CrowdfundingCampaign", function () {
 
       expect(await campaign.totalRaised()).to.equal(THRESHOLD);
       expect(await campaign.state()).to.equal(1); // State.Successful
+      expect(await campaign.remainingToThreshold()).to.equal(0);
+    });
+
+    it("should accurately return remainingToThreshold while active", async function () {
+      const { campaign, fundingToken, alice, campaignAddress } = await loadFixture(
+        deployCampaignFixture
+      );
+
+      expect(await campaign.remainingToThreshold()).to.equal(THRESHOLD);
+
+      const pledgeAmount = ethers.parseEther("300");
+      await fundingToken.connect(alice).approve(campaignAddress, pledgeAmount);
+      await campaign.connect(alice).pledge(pledgeAmount);
+
+      expect(await campaign.remainingToThreshold()).to.equal(THRESHOLD - pledgeAmount);
     });
   });
 
