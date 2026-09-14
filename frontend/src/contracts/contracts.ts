@@ -49,9 +49,17 @@ export const ERC20_ABI = [
   "function faucet(uint256 amount)"
 ];
 
-// Default local Hardhat addresses (fallback)
-export const DEFAULT_HARDHAT_ADDRESSES = {
-  factory: "0x9fE46736679d2D9a65F0992F2272dE9f3c7fa6e0",
-  fundingToken: "0x5FbDB2315678afecb367f032d93F642f64180aa3",
-  rewardToken: "0xe7f1725E7734CE288F8367e1Bb143E90bb3F0512",
+// Environment-configurable contract addresses for Vercel / Sepolia / Localhost
+export const CONTRACT_CONFIG = {
+  factory:
+    import.meta.env.VITE_FACTORY_ADDRESS || "0x9fE46736679d2D9a65F0992F2272dE9f3c7fa6e0",
+  fundingToken:
+    import.meta.env.VITE_FUNDING_TOKEN_ADDRESS || "0x5FbDB2315678afecb367f032d93F642f64180aa3",
+  rewardToken:
+    import.meta.env.VITE_REWARD_TOKEN_ADDRESS || "0xe7f1725E7734CE288F8367e1Bb143E90bb3F0512",
+  defaultChainId: Number(import.meta.env.VITE_DEFAULT_CHAIN_ID || 11155111), // Default: Sepolia
+  sepoliaRpcUrl:
+    import.meta.env.VITE_SEPOLIA_RPC_URL || "https://rpc.sepolia.org",
 };
+
+export const DEFAULT_HARDHAT_ADDRESSES = CONTRACT_CONFIG;
