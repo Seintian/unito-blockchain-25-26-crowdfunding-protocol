@@ -673,6 +673,15 @@ describe("CrowdfundingCampaign", function () {
         campaign.connect(attacker).withdrawBeforeThreshold(ethers.parseEther("50"))
       ).to.be.revertedWithCustomError(campaign, "ReentrancyGuardReentrantCall");
     });
+
+    it("should allow regular transfers on MaliciousReentrantToken when attack is inactive", async function () {
+      const [deployer, user1, user2] = await ethers.getSigners();
+      const MaliciousFactory = await ethers.getContractFactory("MaliciousReentrantToken");
+      const token = (await MaliciousFactory.deploy()) as MaliciousReentrantToken;
+      await token.mint(user1.address, 1000n);
+      await token.connect(user1).transfer(user2.address, 400n);
+      expect(await token.balanceOf(user2.address)).to.equal(400n);
+    });
   });
 
   describe("MockERC20 Faucet & Utility", function () {
@@ -823,6 +832,42 @@ describe("CrowdfundingCampaign", function () {
       await expect(campaign.connect(backer).pledge(ethers.parseEther("1000"))).to.be.revertedWithCustomError(
         campaign,
         "ThresholdExceeded"
+      );
+    });
+
+    it("should revert with ZeroAmount if fee-on-transfer token results in 0 net tokens received", async function () {
+      const [deployer, creator, backer] = await ethers.getSigners();
+      const MockFeeTokenFactory = await ethers.getContractFactory("MockFeeToken");
+      const feeFundingToken = (await MockFeeTokenFactory.deploy()) as MockFeeToken;
+
+      const MockERC20Factory = await ethers.getContractFactory("MockERC20");
+      const rewardToken = (await MockERC20Factory.deploy("Reward Token", "RWD", 18)) as MockERC20;
+
+      const latestTime = await time.latest();
+      const deadline = latestTime + ONE_DAY * 7;
+      const threshold = ethers.parseEther("500");
+
+      const CampaignFactory = await ethers.getContractFactory("CrowdfundingCampaign");
+      const campaign = (await CampaignFactory.deploy(
+        creator.address,
+        await feeFundingToken.getAddress(),
+        await rewardToken.getAddress(),
+        threshold,
+        REWARD_RATE,
+        deadline
+      )) as CrowdfundingCampaign;
+
+      const campaignAddress = await campaign.getAddress();
+      await rewardToken.mint(campaignAddress, (threshold * REWARD_RATE) / RATE_PRECISION);
+
+      // Set fee to 100%, meaning 0 net tokens are received
+      await feeFundingToken.setFeePercent(100);
+      await feeFundingToken.mint(backer.address, ethers.parseEther("100"));
+      await feeFundingToken.connect(backer).approve(campaignAddress, ethers.parseEther("100"));
+
+      await expect(campaign.connect(backer).pledge(ethers.parseEther("100"))).to.be.revertedWithCustomError(
+        campaign,
+        "ZeroAmount"
       );
     });
   });

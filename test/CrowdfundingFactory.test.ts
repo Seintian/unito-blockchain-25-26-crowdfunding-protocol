@@ -311,6 +311,15 @@ describe("CrowdfundingFactory", function () {
       );
       expect(creatorTotalOOB).to.equal(3);
       expect(creatorPageOOB.length).to.equal(0);
+
+      // Creator pagination where limit is 0
+      const [creatorPageZeroLimit, creatorTotalZeroLimit] = await factory.getCreatorCampaignsPaginated(
+        creator1.address,
+        0,
+        0
+      );
+      expect(creatorTotalZeroLimit).to.equal(3);
+      expect(creatorPageZeroLimit.length).to.equal(0);
     });
   });
 });
