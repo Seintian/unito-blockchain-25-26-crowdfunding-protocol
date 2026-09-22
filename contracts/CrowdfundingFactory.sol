@@ -102,6 +102,36 @@ contract CrowdfundingFactory is ICrowdfundingFactory {
     }
 
     /**
+     * @notice Returns a paginated slice of deployed campaign contract addresses.
+     * @param offset Starting index
+     * @param limit Maximum number of elements to return
+     * @return campaigns Array of campaign addresses for the page
+     * @return total Total number of deployed campaigns
+     */
+    function getDeployedCampaignsPaginated(uint256 offset, uint256 limit)
+        external
+        view
+        override
+        returns (address[] memory campaigns, uint256 total)
+    {
+        total = deployedCampaigns.length;
+        if (offset >= total || limit == 0) {
+            return (new address[](0), total);
+        }
+
+        uint256 end = offset + limit;
+        if (end > total) {
+            end = total;
+        }
+
+        uint256 resultLength = end - offset;
+        campaigns = new address[](resultLength);
+        for (uint256 i = 0; i < resultLength; i++) {
+            campaigns[i] = deployedCampaigns[offset + i];
+        }
+    }
+
+    /**
      * @notice Returns total number of deployed campaigns.
      */
     function getDeployedCampaignsCount() external view override returns (uint256) {
@@ -113,6 +143,38 @@ contract CrowdfundingFactory is ICrowdfundingFactory {
      */
     function getCreatorCampaigns(address creator) external view override returns (address[] memory) {
         return creatorCampaigns[creator];
+    }
+
+    /**
+     * @notice Returns a paginated slice of campaigns created by a specific address.
+     * @param creator Creator address
+     * @param offset Starting index
+     * @param limit Maximum number of elements to return
+     * @return campaigns Array of campaign addresses for the page
+     * @return total Total number of campaigns created by creator
+     */
+    function getCreatorCampaignsPaginated(address creator, uint256 offset, uint256 limit)
+        external
+        view
+        override
+        returns (address[] memory campaigns, uint256 total)
+    {
+        address[] storage list = creatorCampaigns[creator];
+        total = list.length;
+        if (offset >= total || limit == 0) {
+            return (new address[](0), total);
+        }
+
+        uint256 end = offset + limit;
+        if (end > total) {
+            end = total;
+        }
+
+        uint256 resultLength = end - offset;
+        campaigns = new address[](resultLength);
+        for (uint256 i = 0; i < resultLength; i++) {
+            campaigns[i] = list[offset + i];
+        }
     }
 
     /**

@@ -2,8 +2,10 @@ export const CROWDFUNDING_FACTORY_ABI = [
   "event CampaignCreated(address indexed campaignAddress, address indexed creator, address indexed fundingToken, address rewardToken, uint256 threshold, uint256 rewardRate, uint256 deadline, uint256 rewardCollateral)",
   "function createCampaign(address fundingToken, address rewardToken, uint256 threshold, uint256 rewardRate, uint256 duration) external returns (address campaignAddress)",
   "function getDeployedCampaigns() external view returns (address[] memory)",
+  "function getDeployedCampaignsPaginated(uint256 offset, uint256 limit) external view returns (address[] memory campaigns, uint256 total)",
   "function getDeployedCampaignsCount() external view returns (uint256)",
   "function getCreatorCampaigns(address creator) external view returns (address[] memory)",
+  "function getCreatorCampaignsPaginated(address creator, uint256 offset, uint256 limit) external view returns (address[] memory campaigns, uint256 total)",
   "function getCreatorCampaignsCount(address creator) external view returns (uint256)"
 ];
 
@@ -14,6 +16,7 @@ export const CROWDFUNDING_CAMPAIGN_ABI = [
   "event RefundClaimed(address indexed backer, uint256 refundAmount)",
   "event CreatorFundsClaimed(address indexed creator, uint256 fundsAmount)",
   "event CreatorCollateralRecovered(address indexed creator, uint256 collateralAmount)",
+  "event ExcessRewardsRecovered(address indexed creator, uint256 amount)",
   "function state() external view returns (uint8)",
   "function creator() external view returns (address)",
   "function fundingToken() external view returns (address)",
@@ -23,6 +26,7 @@ export const CROWDFUNDING_CAMPAIGN_ABI = [
   "function deadline() external view returns (uint256)",
   "function rewardCollateral() external view returns (uint256)",
   "function totalRaised() external view returns (uint256)",
+  "function totalRewardsClaimed() external view returns (uint256)",
   "function contributions(address backer) external view returns (uint256)",
   "function rewardsClaimed(address backer) external view returns (bool)",
   "function refundsClaimed(address backer) external view returns (bool)",
@@ -34,7 +38,8 @@ export const CROWDFUNDING_CAMPAIGN_ABI = [
   "function claimReward() external",
   "function claimRefund() external",
   "function claimFunds() external",
-  "function recoverCollateral() external"
+  "function recoverCollateral() external",
+  "function recoverExcessRewards() external"
 ];
 
 export const ERC20_ABI = [

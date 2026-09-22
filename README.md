@@ -1,6 +1,7 @@
 # Crowdfunding Protocol: All-or-Nothing Decentralized Escrow
 
 #### Exam project for Blockchain, Distributed and Decentralised Systems (INF0422)
+
 **Università degli Studi di Torino — Master's & Bachelor's in Computer Science (A.Y. 2025/2026)**  
 **Instructors:** Prof. Andrea Bracciali, Prof. Claudio Schifanella  
 
@@ -112,6 +113,7 @@ crowdfunding-protocol/
 ## 🚀 Quickstart & Development
 
 ### 1. Installation
+
 ```bash
 # Install root smart contract toolchain
 npm install
@@ -121,20 +123,25 @@ cd frontend && npm install && cd ..
 ```
 
 ### 2. Compilation
+
 ```bash
 npx hardhat compile
 ```
 
 ### 3. Automated Test Suite (43 Passing Tests)
+
 Run the full TypeScript test suite:
+
 ```bash
 npx hardhat test
 ```
 
 Run code coverage analysis:
+
 ```bash
 npx hardhat coverage
 ```
+
 *Achieves 100% statement, function, and line coverage on core contracts.*
 
 ---
@@ -144,25 +151,33 @@ npx hardhat coverage
 You can test the entire protocol without spending any money ($0.00 budget):
 
 ### Step 1: Start local Hardhat EVM Node
+
 ```bash
 npm run node
 ```
 
 ### Step 2: Deploy & Seed Demo Campaigns
+
 In a second terminal:
+
 ```bash
 npm run seed:local
 ```
+
 This deploys the contracts and seeds:
+
 1. **Active Campaign**: A Clean Energy Microgrid campaign collecting pledges.
 2. **Successful Campaign**: An AI Infrastructure campaign with threshold met, ready for reward claims.
 
 ### Step 3: Launch Frontend
+
 In a third terminal:
+
 ```bash
 cd frontend
 npm run dev
 ```
+
 Open `http://localhost:3000` in your browser. Connect MetaMask to `http://127.0.0.1:8545` (Chain ID: `31337`). Use the **🚰 Faucet** button to claim test tokens and interact with campaigns!
 
 ---
@@ -170,11 +185,14 @@ Open `http://localhost:3000` in your browser. Connect MetaMask to `http://127.0.
 ## 🌐 Deployment to Sepolia Testnet
 
 1. Copy `.env.example` to `.env`:
+
    ```bash
    cp .env.example .env
    ```
+
 2. Set your `SEPOLIA_RPC_URL`, deployer `PRIVATE_KEY`, and optional `ETHERSCAN_API_KEY`.
 3. Deploy to Sepolia:
+
    ```bash
    npm run deploy:sepolia
    ```
@@ -183,10 +201,12 @@ Open `http://localhost:3000` in your browser. Connect MetaMask to `http://127.0.
 
 ## 📖 Theoretical Documentation & ADRs
 
-- **[Exhaustive Theoretical Treatise & Protocol Specification](docs/reports/CROWDFUNDING_THEORY_AND_SPECIFICATION_REPORT.md)**
-- **[Architectural Decision Records (ADRs)](docs/README.md)**
+- [**Exhaustive Theoretical, Architectural, Security & Simulation Report**](docs/reports/EXHAUSTIVE_PROTOCOL_ANALYSIS_REPORT.md)
+- [**Exhaustive Theoretical Treatise & Protocol Specification**](docs/reports/CROWDFUNDING_THEORY_AND_SPECIFICATION_REPORT.md)
+- [**Architectural Decision Records (ADRs)**](docs/README.md)
 
 ---
 
 ## 📄 License
+
 This project is licensed under the [MIT License](LICENSE).

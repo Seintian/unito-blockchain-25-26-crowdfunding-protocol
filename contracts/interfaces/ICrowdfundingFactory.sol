@@ -32,7 +32,15 @@ interface ICrowdfundingFactory {
     ) external returns (address campaignAddress);
 
     function getDeployedCampaigns() external view returns (address[] memory);
+    function getDeployedCampaignsPaginated(uint256 offset, uint256 limit)
+        external
+        view
+        returns (address[] memory campaigns, uint256 total);
     function getDeployedCampaignsCount() external view returns (uint256);
     function getCreatorCampaigns(address creator) external view returns (address[] memory);
+    function getCreatorCampaignsPaginated(address creator, uint256 offset, uint256 limit)
+        external
+        view
+        returns (address[] memory campaigns, uint256 total);
     function getCreatorCampaignsCount(address creator) external view returns (uint256);
 }

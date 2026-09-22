@@ -41,6 +41,9 @@ contract CrowdfundingCampaign is ICrowdfundingCampaign, ReentrancyGuard {
     /// @notice Aggregate amount of funding tokens currently pledged
     uint256 public override totalRaised;
 
+    /// @notice Aggregate amount of reward tokens claimed by backers
+    uint256 public override totalRewardsClaimed;
+
     /// @notice Whether the creator has withdrawn the raised funds upon success
     bool public override creatorFundsClaimed;
 
@@ -123,18 +126,24 @@ contract CrowdfundingCampaign is ICrowdfundingCampaign, ReentrancyGuard {
         if (amount == 0) {
             revert ZeroAmount();
         }
-        if (totalRaised + amount > threshold) {
+
+        // Measure actual balance delta received to protect against fee-on-transfer tokens
+        uint256 balanceBefore = fundingToken.balanceOf(address(this));
+        fundingToken.safeTransferFrom(msg.sender, address(this), amount);
+        uint256 actualReceived = fundingToken.balanceOf(address(this)) - balanceBefore;
+
+        if (actualReceived == 0) {
+            revert ZeroAmount();
+        }
+        if (totalRaised + actualReceived > threshold) {
             revert ThresholdExceeded();
         }
 
         // Checks & Effects
-        contributions[msg.sender] += amount;
-        totalRaised += amount;
+        contributions[msg.sender] += actualReceived;
+        totalRaised += actualReceived;
 
-        emit Pledged(msg.sender, amount, totalRaised);
-
-        // Interaction
-        fundingToken.safeTransferFrom(msg.sender, address(this), amount);
+        emit Pledged(msg.sender, actualReceived, totalRaised);
     }
 
     /**
@@ -183,6 +192,7 @@ contract CrowdfundingCampaign is ICrowdfundingCampaign, ReentrancyGuard {
         // Effects
         rewardsClaimed[msg.sender] = true;
         uint256 rewardAmount = calculateReward(backerContribution);
+        totalRewardsClaimed += rewardAmount;
 
         emit RewardsClaimed(msg.sender, rewardAmount);
 
@@ -261,6 +271,32 @@ contract CrowdfundingCampaign is ICrowdfundingCampaign, ReentrancyGuard {
 
         // Interaction
         rewardToken.safeTransfer(creator, rewardCollateral);
+    }
+
+    /**
+     * @notice Allows the creator to recover unallocated reward tokens and rounding dust in a successful campaign.
+     * @dev Calculates remaining maximum backer liability and sweeps only true surplus.
+     */
+    function recoverExcessRewards() external override nonReentrant {
+        if (msg.sender != creator) {
+            revert Unauthorized();
+        }
+        if (state() != State.Successful) {
+            revert CampaignNotSuccessful();
+        }
+
+        uint256 remainingLiability = rewardCollateral - totalRewardsClaimed;
+        uint256 currentBalance = rewardToken.balanceOf(address(this));
+
+        if (currentBalance <= remainingLiability) {
+            revert NoExcessRewards();
+        }
+
+        uint256 excessAmount = currentBalance - remainingLiability;
+
+        emit ExcessRewardsRecovered(creator, excessAmount);
+
+        rewardToken.safeTransfer(creator, excessAmount);
     }
 
     /**

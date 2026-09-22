@@ -1,7 +1,7 @@
 import { expect } from "chai";
 import { ethers } from "hardhat";
 import { time, loadFixture } from "@nomicfoundation/hardhat-network-helpers";
-import { CrowdfundingCampaign, MockERC20, MaliciousReentrantToken } from "../typechain-types";
+import { CrowdfundingCampaign, MockERC20, MaliciousReentrantToken, MockFeeToken } from "../typechain-types";
 import { SignerWithAddress } from "@nomicfoundation/hardhat-ethers/signers";
 
 describe("CrowdfundingCampaign", function () {
@@ -736,6 +736,163 @@ describe("CrowdfundingCampaign", function () {
       // 5,000 * 10 = 50,000 whole PRJ tokens (50,000 * 10^18)
       expect(expectedReward).to.equal(ethers.parseEther("50000"));
       expect(await multiDecCampaign.calculateReward(pledgeAmount)).to.equal(expectedReward);
+    });
+  });
+
+  describe("Fee-on-Transfer Funding Token Protection", function () {
+    it("should correctly record net received amount and avoid contract insolvency", async function () {
+      const [deployer, creator, backer] = await ethers.getSigners();
+      const MockFeeTokenFactory = await ethers.getContractFactory("MockFeeToken");
+      const feeFundingToken = (await MockFeeTokenFactory.deploy()) as MockFeeToken;
+
+      const MockERC20Factory = await ethers.getContractFactory("MockERC20");
+      const rewardToken = (await MockERC20Factory.deploy("Reward Token", "RWD", 18)) as MockERC20;
+
+      const latestTime = await time.latest();
+      const deadline = latestTime + ONE_DAY * 7;
+      const threshold = ethers.parseEther("950"); // Target is exactly 950 net tokens
+
+      const CampaignFactory = await ethers.getContractFactory("CrowdfundingCampaign");
+      const campaign = (await CampaignFactory.deploy(
+        creator.address,
+        await feeFundingToken.getAddress(),
+        await rewardToken.getAddress(),
+        threshold,
+        REWARD_RATE,
+        deadline
+      )) as CrowdfundingCampaign;
+
+      const campaignAddress = await campaign.getAddress();
+      const collateral = (threshold * REWARD_RATE) / RATE_PRECISION;
+      await rewardToken.mint(campaignAddress, collateral);
+
+      // Backer has 2,000 fee tokens. Backer pledges 1,000 tokens.
+      // MockFeeToken deducts 5% fee (50 tokens), so campaign receives exactly 950 tokens!
+      await feeFundingToken.mint(backer.address, ethers.parseEther("2000"));
+      await feeFundingToken.connect(backer).approve(campaignAddress, ethers.parseEther("1000"));
+
+      await expect(campaign.connect(backer).pledge(ethers.parseEther("1000")))
+        .to.emit(campaign, "Pledged")
+        .withArgs(backer.address, ethers.parseEther("950"), ethers.parseEther("950"));
+
+      // Invariant checks
+      expect(await campaign.contributions(backer.address)).to.equal(ethers.parseEther("950"));
+      expect(await campaign.totalRaised()).to.equal(ethers.parseEther("950"));
+      expect(await campaign.state()).to.equal(1); // Successful!
+
+      // Verify contract balance of fee token exactly matches totalRaised
+      expect(await feeFundingToken.balanceOf(campaignAddress)).to.equal(ethers.parseEther("950"));
+
+      // Creator claims funds: must succeed without reverting because contract holds the full 950 tokens!
+      await expect(campaign.connect(creator).claimFunds())
+        .to.emit(campaign, "CreatorFundsClaimed")
+        .withArgs(creator.address, ethers.parseEther("950"));
+
+      expect(await feeFundingToken.balanceOf(campaignAddress)).to.equal(0);
+    });
+
+    it("should revert if fee-on-transfer pledge net amount exceeds threshold", async function () {
+      const [deployer, creator, backer] = await ethers.getSigners();
+      const MockFeeTokenFactory = await ethers.getContractFactory("MockFeeToken");
+      const feeFundingToken = (await MockFeeTokenFactory.deploy()) as MockFeeToken;
+
+      const MockERC20Factory = await ethers.getContractFactory("MockERC20");
+      const rewardToken = (await MockERC20Factory.deploy("Reward Token", "RWD", 18)) as MockERC20;
+
+      const latestTime = await time.latest();
+      const deadline = latestTime + ONE_DAY * 7;
+      const threshold = ethers.parseEther("500");
+
+      const CampaignFactory = await ethers.getContractFactory("CrowdfundingCampaign");
+      const campaign = (await CampaignFactory.deploy(
+        creator.address,
+        await feeFundingToken.getAddress(),
+        await rewardToken.getAddress(),
+        threshold,
+        REWARD_RATE,
+        deadline
+      )) as CrowdfundingCampaign;
+
+      const campaignAddress = await campaign.getAddress();
+      await rewardToken.mint(campaignAddress, (threshold * REWARD_RATE) / RATE_PRECISION);
+
+      // Pledging 1,000 gives 950 net, which exceeds 500 threshold
+      await feeFundingToken.mint(backer.address, ethers.parseEther("1000"));
+      await feeFundingToken.connect(backer).approve(campaignAddress, ethers.parseEther("1000"));
+
+      await expect(campaign.connect(backer).pledge(ethers.parseEther("1000"))).to.be.revertedWithCustomError(
+        campaign,
+        "ThresholdExceeded"
+      );
+    });
+  });
+
+  describe("Excess Reward Dust Recovery", function () {
+    it("should allow creator to recover excess reward tokens and dust upon success", async function () {
+      const { campaign, fundingToken, rewardToken, creator, alice, bob, campaignAddress } = await loadFixture(
+        deployCampaignFixture
+      );
+
+      // Fund to threshold
+      await fundingToken.connect(alice).approve(campaignAddress, ethers.parseEther("600"));
+      await campaign.connect(alice).pledge(ethers.parseEther("600"));
+
+      await fundingToken.connect(bob).approve(campaignAddress, ethers.parseEther("400"));
+      await campaign.connect(bob).pledge(ethers.parseEther("400"));
+
+      expect(await campaign.state()).to.equal(1); // Successful
+
+      // Alice claims rewards: 600 * 2 = 1200 reward tokens
+      await campaign.connect(alice).claimReward();
+      expect(await campaign.totalRewardsClaimed()).to.equal(ethers.parseEther("1200"));
+
+      // Currently, contract has 800 remaining reward tokens for Bob (collateral was 2000, 2000 - 1200 = 800)
+      // Attempting to recover excess rewards should revert with NoExcessRewards
+      await expect(campaign.connect(creator).recoverExcessRewards()).to.be.revertedWithCustomError(
+        campaign,
+        "NoExcessRewards"
+      );
+
+      // Non-creator cannot call recoverExcessRewards
+      await expect(campaign.connect(alice).recoverExcessRewards()).to.be.revertedWithCustomError(
+        campaign,
+        "Unauthorized"
+      );
+
+      // Simulate excess reward tokens (e.g., donated tokens or rounding dust surplus)
+      const surplus = ethers.parseEther("250");
+      await rewardToken.mint(campaignAddress, surplus);
+
+      const creatorRewardBefore = await rewardToken.balanceOf(creator.address);
+
+      // Creator sweeps excess tokens
+      await expect(campaign.connect(creator).recoverExcessRewards())
+        .to.emit(campaign, "ExcessRewardsRecovered")
+        .withArgs(creator.address, surplus);
+
+      const creatorRewardAfter = await rewardToken.balanceOf(creator.address);
+      expect(creatorRewardAfter - creatorRewardBefore).to.equal(surplus);
+
+      // Second recovery reverts since excess was already swept
+      await expect(campaign.connect(creator).recoverExcessRewards()).to.be.revertedWithCustomError(
+        campaign,
+        "NoExcessRewards"
+      );
+
+      // Bob can still claim his exact 800 reward tokens without failure!
+      await expect(campaign.connect(bob).claimReward())
+        .to.emit(campaign, "RewardsClaimed")
+        .withArgs(bob.address, ethers.parseEther("800"));
+      expect(await campaign.totalRewardsClaimed()).to.equal(ethers.parseEther("2000"));
+    });
+
+    it("should revert recoverExcessRewards if campaign is not successful", async function () {
+      const { campaign, creator } = await loadFixture(deployCampaignFixture);
+      // Campaign is still Active
+      await expect(campaign.connect(creator).recoverExcessRewards()).to.be.revertedWithCustomError(
+        campaign,
+        "CampaignNotSuccessful"
+      );
     });
   });
 });

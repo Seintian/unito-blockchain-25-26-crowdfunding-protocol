@@ -238,5 +238,79 @@ describe("CrowdfundingFactory", function () {
       expect(await factory.getCreatorCampaignsCount(creator1.address)).to.equal(2);
       expect(await factory.getCreatorCampaignsCount(creator2.address)).to.equal(1);
     });
+
+    it("should support paginated retrieval of deployed and creator campaigns", async function () {
+      const { factory, fundingToken, rewardToken, creator1, factoryAddress } = await loadFixture(
+        deployFactoryFixture
+      );
+
+      await rewardToken.connect(creator1).approve(factoryAddress, REQUIRED_COLLATERAL * 5n);
+
+      // Deploy 3 campaigns
+      for (let i = 1; i <= 3; i++) {
+        await factory.connect(creator1).createCampaign(
+          await fundingToken.getAddress(),
+          await rewardToken.getAddress(),
+          THRESHOLD,
+          REWARD_RATE,
+          ONE_DAY * i
+        );
+      }
+
+      const allCampaigns = await factory.getDeployedCampaigns();
+      expect(allCampaigns.length).to.equal(3);
+
+      // Page 1: offset 0, limit 2
+      const [page1, total1] = await factory.getDeployedCampaignsPaginated(0, 2);
+      expect(total1).to.equal(3);
+      expect(page1.length).to.equal(2);
+      expect(page1[0]).to.equal(allCampaigns[0]);
+      expect(page1[1]).to.equal(allCampaigns[1]);
+
+      // Page 2: offset 2, limit 2 (only 1 remaining)
+      const [page2, total2] = await factory.getDeployedCampaignsPaginated(2, 2);
+      expect(total2).to.equal(3);
+      expect(page2.length).to.equal(1);
+      expect(page2[0]).to.equal(allCampaigns[2]);
+
+      // Out of bounds offset
+      const [pageEmpty, totalEmpty] = await factory.getDeployedCampaignsPaginated(5, 2);
+      expect(totalEmpty).to.equal(3);
+      expect(pageEmpty.length).to.equal(0);
+
+      // Limit 0 returns empty slice
+      const [pageZeroLimit, totalZero] = await factory.getDeployedCampaignsPaginated(0, 0);
+      expect(totalZero).to.equal(3);
+      expect(pageZeroLimit.length).to.equal(0);
+
+      // Creator paginated queries
+      const [creatorPage1, creatorTotal1] = await factory.getCreatorCampaignsPaginated(
+        creator1.address,
+        0,
+        1
+      );
+      expect(creatorTotal1).to.equal(3);
+      expect(creatorPage1.length).to.equal(1);
+      expect(creatorPage1[0]).to.equal(allCampaigns[0]);
+
+      // Creator pagination where offset + limit exceeds total
+      const [creatorPageExceed, creatorTotalExceed] = await factory.getCreatorCampaignsPaginated(
+        creator1.address,
+        1,
+        10
+      );
+      expect(creatorTotalExceed).to.equal(3);
+      expect(creatorPageExceed.length).to.equal(2);
+      expect(creatorPageExceed[0]).to.equal(allCampaigns[1]);
+      expect(creatorPageExceed[1]).to.equal(allCampaigns[2]);
+
+      const [creatorPageOOB, creatorTotalOOB] = await factory.getCreatorCampaignsPaginated(
+        creator1.address,
+        10,
+        5
+      );
+      expect(creatorTotalOOB).to.equal(3);
+      expect(creatorPageOOB.length).to.equal(0);
+    });
   });
 });

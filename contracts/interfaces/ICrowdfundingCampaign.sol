@@ -22,6 +22,7 @@ interface ICrowdfundingCampaign {
     event RefundClaimed(address indexed backer, uint256 refundAmount);
     event CreatorFundsClaimed(address indexed creator, uint256 fundsAmount);
     event CreatorCollateralRecovered(address indexed creator, uint256 collateralAmount);
+    event ExcessRewardsRecovered(address indexed creator, uint256 amount);
 
     // --- Custom Errors ---
     error CampaignNotActive();
@@ -38,6 +39,7 @@ interface ICrowdfundingCampaign {
     error RefundsAlreadyClaimed();
     error CreatorFundsAlreadyClaimed();
     error CreatorCollateralAlreadyRefunded();
+    error NoExcessRewards();
     error Unauthorized();
     error InvalidConfiguration();
 
@@ -48,6 +50,7 @@ interface ICrowdfundingCampaign {
     function claimRefund() external;
     function claimFunds() external;
     function recoverCollateral() external;
+    function recoverExcessRewards() external;
 
     // --- View Functions ---
     function state() external view returns (State);
@@ -59,6 +62,7 @@ interface ICrowdfundingCampaign {
     function deadline() external view returns (uint256);
     function rewardCollateral() external view returns (uint256);
     function totalRaised() external view returns (uint256);
+    function totalRewardsClaimed() external view returns (uint256);
     function contributions(address backer) external view returns (uint256);
     function rewardsClaimed(address backer) external view returns (bool);
     function refundsClaimed(address backer) external view returns (bool);

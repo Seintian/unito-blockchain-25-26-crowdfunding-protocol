@@ -8,6 +8,8 @@ Welcome to the comprehensive technical and theoretical documentation of **Crowdf
 
 ### 1. Fundamental Theory & Specifications (`docs/reports/`)
 
+- [**Exhaustive Protocol Analysis: Theory, Simulation, Security & Gaps**](reports/EXHAUSTIVE_PROTOCOL_ANALYSIS_REPORT.md):
+  Deep evaluation of EVM computational mechanics, game-theoretic equilibria, real vs. fake simulation fidelity, critical missing features, real-world fee-on-transfer vulnerabilities, and improvement roadmaps.
 - [**Theoretical Foundations & Comprehensive Protocol Specification**](reports/CROWDFUNDING_THEORY_AND_SPECIFICATION_REPORT.md):
   EVM execution engine, account-based state machines, microeconomics of Assurance Contracts (Provision Point Mechanisms), dominant strategy equilibria, formal protocol invariants, dual-token collateral mathematics, and EVM security threat modeling.
 - [**Security Audit & Gas Optimization Report**](reports/SECURITY_AUDIT_AND_OPTIMIZATION_REPORT.md):
