@@ -34,7 +34,7 @@ Welcome to the comprehensive technical and theoretical documentation of **Crowdf
 # Compile contracts with Hardhat
 npm run compile
 
-# Run comprehensive test suite (45 unit & invariant tests)
+# Run comprehensive test suite (53 unit & invariant tests)
 npm run test
 
 # Run code coverage (100% statements & lines on core contracts)

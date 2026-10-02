@@ -81,6 +81,7 @@ crowdfunding-protocol/
 │   │   └── ICrowdfundingFactory.sol     # Formal factory interface
 │   └── mocks/
 │       ├── MockERC20.sol                # Configurable ERC-20 with test faucet
+│       ├── MockFeeToken.sol             # Fee-on-transfer simulation token
 │       └── MaliciousReentrantToken.sol  # Attack vector mock for security tests
 ├── test/
 │   ├── CrowdfundingCampaign.test.ts     # 100% branch/statement unit test suite
@@ -128,7 +129,7 @@ cd frontend && npm install && cd ..
 npx hardhat compile
 ```
 
-### 3. Automated Test Suite (43 Passing Tests)
+### 3. Automated Test Suite (53 Passing Tests)
 
 Run the full TypeScript test suite:
 
@@ -168,6 +169,7 @@ This deploys the contracts and seeds:
 
 1. **Active Campaign**: A Clean Energy Microgrid campaign collecting pledges.
 2. **Successful Campaign**: An AI Infrastructure campaign with threshold met, ready for reward claims.
+3. **Expired / Failed Campaign**: An Open Source Zero-Knowledge Toolkit campaign past deadline, ready for 100% principal refunds and collateral recovery.
 
 ### Step 3: Launch Frontend
 

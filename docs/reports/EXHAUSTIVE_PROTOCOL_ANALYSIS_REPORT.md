@@ -512,6 +512,8 @@ graph LR
       external view returns (address[] memory subset, uint256 total) 
   ```
 
+  *(Status: Implemented in `CrowdfundingFactory.sol` and verified by `CrowdfundingFactory.test.ts`)*
+
 ### 6.6 Residual Reward Dust Recovery Mechanism
 
 - **Current Behavior**:
@@ -522,12 +524,14 @@ graph LR
   Introduce a creator recovery function enabled only after all eligible rewards have been claimed or a generous claim window has elapsed:
 
   ```solidity
-  function recoverRewardDust() external nonReentrant {
+  function recoverExcessRewards() external nonReentrant {
       if (msg.sender != creator) revert Unauthorized();
       if (state() != State.Successful) revert CampaignNotSuccessful();
       // Allow sweeping unallocated reward tokens
   }
   ```
+
+  *(Status: Implemented as `recoverExcessRewards()` in `CrowdfundingCampaign.sol` and integrated in frontend dApp)*
 
 ### 6.7 Protocol Fee Switch & Treasury Monetization
 
@@ -557,7 +561,7 @@ A rigorous security audit was conducted against the Solidity contracts, evaluati
 ├─────────────────────┼─────────┼───────────────────────────────┼──────────────┼─────────────────────────┤
 │ Reentrancy          │ SWC-107 │ `claimReward`, `claimRefund`  │ Critical     │ Mitigated (CEI + Guard) │
 │ Block Gas Limit DoS │ SWC-128 │ Token Distributions           │ High         │ Mitigated (Pull Pattern)│
-│ Fee-on-Transfer     │ DeFi    │ `CrowdfundingCampaign.pledge` │ High         │ VULNERABLE (Unchecked)  │
+│ Fee-on-Transfer     │ DeFi    │ `CrowdfundingCampaign.pledge` │ High         │ Mitigated (Balance Delta)│
 │ Rebasing Tokens     │ DeFi    │ Campaign Token Accounting     │ Medium       │ Architectural Risk      │
 │ Asset Blacklisting  │ DeFi    │ USDC/USDT SafeTransfer        │ Medium       │ Inherent Token Risk     │
 │ Timestamp Tampering │ SWC-116 │ `state()` Deadline Transition │ Low          │ Mitigated (PoS Bounds)  │
@@ -670,6 +674,8 @@ totalRaised += actualReceived;
 
 emit Pledged(msg.sender, actualReceived, totalRaised);
 ```
+
+**Implementation & Verification:** This remediation has been fully implemented in `CrowdfundingCampaign.sol` (lines 130–147) and verified by the test suite in `CrowdfundingCampaign.test.ts` ("Fee-on-Transfer Funding Token Protection" suite).
 
 ---
 

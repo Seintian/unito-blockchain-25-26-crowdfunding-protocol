@@ -125,7 +125,7 @@ Replaced legacy `require(condition, "error string")` with custom Solidity 0.8.20
 
 ## 5. Formal Invariant Verification Results
 
-The automated test suite (45 unit & invariant tests) verifies five formal protocol invariants:
+The automated test suite (53 unit & invariant tests) verifies five formal protocol invariants:
 
 1. **Solvency Invariant**:
    $$\text{balanceOf}(R, \text{campaign}) \ge \sum_{i} \text{calculateReward}(c_i)$$
