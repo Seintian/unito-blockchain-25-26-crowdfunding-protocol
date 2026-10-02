@@ -121,6 +121,23 @@ describe("CrowdfundingCampaign", function () {
       ).to.be.revertedWithCustomError(CampaignFactory, "InvalidConfiguration");
     });
 
+    it("should revert if fundingToken and rewardToken are the same", async function () {
+      const { creator, fundingToken } = await loadFixture(deployCampaignFixture);
+      const CampaignFactory = await ethers.getContractFactory("CrowdfundingCampaign");
+      const latestTime = await time.latest();
+
+      await expect(
+        CampaignFactory.deploy(
+          creator.address,
+          await fundingToken.getAddress(),
+          await fundingToken.getAddress(),
+          THRESHOLD,
+          REWARD_RATE,
+          latestTime + 100
+        )
+      ).to.be.revertedWithCustomError(CampaignFactory, "InvalidConfiguration");
+    });
+
     it("should revert if threshold or rewardRate is zero", async function () {
       const { creator, fundingToken, rewardToken } = await loadFixture(deployCampaignFixture);
       const CampaignFactory = await ethers.getContractFactory("CrowdfundingCampaign");

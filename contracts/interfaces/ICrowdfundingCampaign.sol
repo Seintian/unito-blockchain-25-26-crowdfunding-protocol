@@ -29,9 +29,6 @@ interface ICrowdfundingCampaign {
     error CampaignNotSuccessful();
     error CampaignNotExpired();
     error DeadlinePassed();
-    error DeadlineNotPassed();
-    error ThresholdAlreadyReached();
-    error ThresholdNotReached();
     error ThresholdExceeded();
     error ZeroAmount();
     error InsufficientContribution();

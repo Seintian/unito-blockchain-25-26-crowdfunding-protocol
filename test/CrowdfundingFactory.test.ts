@@ -68,6 +68,16 @@ describe("CrowdfundingFactory", function () {
           ONE_DAY * 7
         )
       ).to.be.revertedWithCustomError(factory, "InvalidTokenAddress");
+
+      await expect(
+        factory.createCampaign(
+          await rewardToken.getAddress(),
+          await rewardToken.getAddress(),
+          THRESHOLD,
+          REWARD_RATE,
+          ONE_DAY * 7
+        )
+      ).to.be.revertedWithCustomError(factory, "InvalidTokenAddress");
     });
 
     it("should revert if threshold is zero", async function () {

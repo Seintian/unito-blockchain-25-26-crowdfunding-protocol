@@ -42,6 +42,9 @@ contract CrowdfundingFactory is ICrowdfundingFactory {
         if (fundingToken == address(0) || rewardToken == address(0)) {
             revert InvalidTokenAddress();
         }
+        if (fundingToken == rewardToken) {
+            revert InvalidTokenAddress();
+        }
         if (threshold == 0) {
             revert InvalidThreshold();
         }

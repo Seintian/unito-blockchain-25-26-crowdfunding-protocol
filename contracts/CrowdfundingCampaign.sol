@@ -79,6 +79,9 @@ contract CrowdfundingCampaign is ICrowdfundingCampaign, ReentrancyGuard {
         if (_creator == address(0) || _fundingToken == address(0) || _rewardToken == address(0)) {
             revert InvalidConfiguration();
         }
+        if (_fundingToken == _rewardToken) {
+            revert InvalidConfiguration();
+        }
         if (_threshold == 0 || _rewardRate == 0) {
             revert InvalidConfiguration();
         }
