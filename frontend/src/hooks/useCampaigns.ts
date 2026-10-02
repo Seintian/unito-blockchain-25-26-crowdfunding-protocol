@@ -5,6 +5,7 @@ import {
   CROWDFUNDING_CAMPAIGN_ABI,
   ERC20_ABI,
   DEFAULT_HARDHAT_ADDRESSES,
+  parseContractError,
 } from "../contracts/contracts";
 
 export interface CampaignData {
@@ -21,6 +22,7 @@ export interface CampaignData {
   deadline: number;
   rewardCollateral: bigint;
   totalRaised: bigint;
+  remainingToThreshold: bigint;
   state: number; // 0: Active, 1: Successful, 2: Expired
   creatorFundsClaimed: boolean;
   creatorCollateralRecovered: boolean;
@@ -74,6 +76,7 @@ export function useCampaigns(
             deadline,
             rewardCollateral,
             totalRaised,
+            remainingToThreshold,
             state,
             creatorFundsClaimed,
             creatorCollateralRecovered,
@@ -86,6 +89,7 @@ export function useCampaigns(
             camp.deadline(),
             camp.rewardCollateral(),
             camp.totalRaised(),
+            camp.remainingToThreshold().catch(() => 0n),
             camp.state(),
             camp.creatorFundsClaimed(),
             camp.creatorCollateralRecovered(),
@@ -137,6 +141,7 @@ export function useCampaigns(
             deadline: Number(deadline),
             rewardCollateral,
             totalRaised,
+            remainingToThreshold,
             state: Number(state),
             creatorFundsClaimed,
             creatorCollateralRecovered,
@@ -152,7 +157,7 @@ export function useCampaigns(
       setCampaigns(campaignDataList);
     } catch (err: any) {
       console.error("Error loading campaigns:", err);
-      setError(err.message || "Failed to fetch campaigns");
+      setError(parseContractError(err));
     } finally {
       setLoading(false);
     }
@@ -171,6 +176,8 @@ export function useCampaigns(
       const tx = await token.approve(spender, amount);
       await tx.wait();
       await fetchCampaigns();
+    } catch (err: any) {
+      throw new Error(parseContractError(err));
     } finally {
       setTxPending(false);
     }
@@ -184,6 +191,8 @@ export function useCampaigns(
       const tx = await campaign.pledge(amount);
       await tx.wait();
       await fetchCampaigns();
+    } catch (err: any) {
+      throw new Error(parseContractError(err));
     } finally {
       setTxPending(false);
     }
@@ -197,6 +206,8 @@ export function useCampaigns(
       const tx = await campaign.withdrawBeforeThreshold(amount);
       await tx.wait();
       await fetchCampaigns();
+    } catch (err: any) {
+      throw new Error(parseContractError(err));
     } finally {
       setTxPending(false);
     }
@@ -210,6 +221,8 @@ export function useCampaigns(
       const tx = await campaign.claimReward();
       await tx.wait();
       await fetchCampaigns();
+    } catch (err: any) {
+      throw new Error(parseContractError(err));
     } finally {
       setTxPending(false);
     }
@@ -223,6 +236,8 @@ export function useCampaigns(
       const tx = await campaign.claimRefund();
       await tx.wait();
       await fetchCampaigns();
+    } catch (err: any) {
+      throw new Error(parseContractError(err));
     } finally {
       setTxPending(false);
     }
@@ -236,6 +251,8 @@ export function useCampaigns(
       const tx = await campaign.claimFunds();
       await tx.wait();
       await fetchCampaigns();
+    } catch (err: any) {
+      throw new Error(parseContractError(err));
     } finally {
       setTxPending(false);
     }
@@ -249,6 +266,23 @@ export function useCampaigns(
       const tx = await campaign.recoverCollateral();
       await tx.wait();
       await fetchCampaigns();
+    } catch (err: any) {
+      throw new Error(parseContractError(err));
+    } finally {
+      setTxPending(false);
+    }
+  };
+
+  const recoverExcessRewards = async (campaignAddress: string) => {
+    if (!signer) throw new Error("Wallet not connected");
+    setTxPending(true);
+    try {
+      const campaign = new Contract(campaignAddress, CROWDFUNDING_CAMPAIGN_ABI, signer);
+      const tx = await campaign.recoverExcessRewards();
+      await tx.wait();
+      await fetchCampaigns();
+    } catch (err: any) {
+      throw new Error(parseContractError(err));
     } finally {
       setTxPending(false);
     }
@@ -274,6 +308,8 @@ export function useCampaigns(
       );
       await tx.wait();
       await fetchCampaigns();
+    } catch (err: any) {
+      throw new Error(parseContractError(err));
     } finally {
       setTxPending(false);
     }
@@ -287,6 +323,8 @@ export function useCampaigns(
       const tx = await token.faucet(amount);
       await tx.wait();
       await fetchCampaigns();
+    } catch (err: any) {
+      throw new Error(parseContractError(err));
     } finally {
       setTxPending(false);
     }
@@ -305,6 +343,7 @@ export function useCampaigns(
     claimRefund,
     claimFunds,
     recoverCollateral,
+    recoverExcessRewards,
     createCampaign,
     faucetMint,
   };

@@ -37,27 +37,41 @@ export const App: React.FC = () => {
     claimRefund,
     claimFunds,
     recoverCollateral,
+    recoverExcessRewards,
     createCampaign,
     faucetMint,
     refreshCampaigns,
   } = useCampaigns(provider, signer, account);
 
-  // Global Statistics
-  const totalCampaignsCount = campaigns.length;
-  const activeCount = campaigns.filter((c) => c.state === 0).length;
-  const successfulCount = campaigns.filter((c) => c.state === 1).length;
-  const expiredCount = campaigns.filter((c) => c.state === 2).length;
+  const now = Math.floor(Date.now() / 1000);
+  const isCampaignExpired = (c: { state: number; deadline: number }) =>
+    c.state === 2 || (c.state === 0 && c.deadline <= now);
 
-  const totalRaisedBigInt = campaigns.reduce((acc, c) => acc + c.totalRaised, 0n);
-  const formattedTotalRaised = parseFloat(
-    ethers.formatEther(totalRaisedBigInt)
-  ).toLocaleString(undefined, { maximumFractionDigits: 2 });
+  // Global Statistics with decimal normalization
+  const totalCampaignsCount = campaigns.length;
+  const activeCount = campaigns.filter((c) => c.state === 0 && c.deadline > now).length;
+  const successfulCount = campaigns.filter((c) => c.state === 1).length;
+  const expiredCount = campaigns.filter((c) => isCampaignExpired(c)).length;
+
+  const totalRaisedNormalized = campaigns.reduce((acc, c) => {
+    try {
+      const val = parseFloat(ethers.formatUnits(c.totalRaised, c.fundingDecimals));
+      return acc + (isNaN(val) ? 0 : val);
+    } catch {
+      return acc;
+    }
+  }, 0);
+
+  const formattedTotalRaised = totalRaisedNormalized.toLocaleString(undefined, {
+    maximumFractionDigits: 2,
+  });
 
   // Filtered Campaigns
   const filteredCampaigns = campaigns.filter((c) => {
-    if (activeTab === "active" && c.state !== 0) return false;
+    const expired = isCampaignExpired(c);
+    if (activeTab === "active" && (c.state !== 0 || expired)) return false;
     if (activeTab === "successful" && c.state !== 1) return false;
-    if (activeTab === "expired" && c.state !== 2) return false;
+    if (activeTab === "expired" && (!expired || c.state === 1)) return false;
     if (searchQuery) {
       const q = searchQuery.toLowerCase();
       return (
@@ -103,7 +117,7 @@ export const App: React.FC = () => {
         <section className="stats-banner">
           <div className="stat-card">
             <div className="stat-label">Total Volume Raised</div>
-            <div className="stat-val">{formattedTotalRaised} USDC</div>
+            <div className="stat-val">{formattedTotalRaised} Tokens</div>
           </div>
           <div className="stat-card">
             <div className="stat-label">Active Campaigns</div>
@@ -166,11 +180,11 @@ export const App: React.FC = () => {
               type="text"
               className="form-input"
               style={{ width: "240px", padding: "0.45rem 0.75rem" }}
-              placeholder="Search by address..."
+              placeholder="Search by address or token..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
             />
-            <button className="btn btn-secondary" onClick={refreshCampaigns} disabled={loading}>
+            <button className="btn btn-secondary" onClick={refreshCampaigns} disabled={loading} title="Refresh">
               🔄
             </button>
           </div>
@@ -195,6 +209,7 @@ export const App: React.FC = () => {
                 onClaimRefund={claimRefund}
                 onClaimFunds={claimFunds}
                 onRecoverCollateral={recoverCollateral}
+                onRecoverExcessRewards={recoverExcessRewards}
                 txPending={txPending}
               />
             ))}
@@ -228,6 +243,8 @@ export const App: React.FC = () => {
         rewardTokenAddress={DEFAULT_HARDHAT_ADDRESSES.rewardToken}
         fundingSymbol="USDC"
         rewardSymbol="GOV"
+        fundingDecimals={18}
+        rewardDecimals={18}
         onFaucetMint={faucetMint}
         txPending={txPending}
       />
@@ -238,6 +255,7 @@ export const App: React.FC = () => {
         factoryAddress={DEFAULT_HARDHAT_ADDRESSES.factory}
         defaultFundingToken={DEFAULT_HARDHAT_ADDRESSES.fundingToken}
         defaultRewardToken={DEFAULT_HARDHAT_ADDRESSES.rewardToken}
+        provider={provider}
         onCreateCampaign={createCampaign}
         onApprove={approveToken}
         txPending={txPending}

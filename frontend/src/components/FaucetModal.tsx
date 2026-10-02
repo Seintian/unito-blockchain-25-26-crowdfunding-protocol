@@ -8,6 +8,8 @@ interface FaucetModalProps {
   rewardTokenAddress: string;
   fundingSymbol: string;
   rewardSymbol: string;
+  fundingDecimals?: number;
+  rewardDecimals?: number;
   onFaucetMint: (tokenAddress: string, amount: bigint) => Promise<void>;
   txPending: boolean;
 }
@@ -19,6 +21,8 @@ export const FaucetModal: React.FC<FaucetModalProps> = ({
   rewardTokenAddress,
   fundingSymbol,
   rewardSymbol,
+  fundingDecimals = 18,
+  rewardDecimals = 18,
   onFaucetMint,
   txPending,
 }) => {
@@ -29,7 +33,7 @@ export const FaucetModal: React.FC<FaucetModalProps> = ({
 
   const handleMintFunding = async () => {
     try {
-      const amount = ethers.parseEther(fundingAmount);
+      const amount = ethers.parseUnits(fundingAmount, fundingDecimals);
       await onFaucetMint(fundingTokenAddress, amount);
     } catch (err: any) {
       alert("Mint failed: " + err.message);
@@ -38,7 +42,7 @@ export const FaucetModal: React.FC<FaucetModalProps> = ({
 
   const handleMintReward = async () => {
     try {
-      const amount = ethers.parseEther(rewardAmount);
+      const amount = ethers.parseUnits(rewardAmount, rewardDecimals);
       await onFaucetMint(rewardTokenAddress, amount);
     } catch (err: any) {
       alert("Mint failed: " + err.message);
@@ -60,7 +64,7 @@ export const FaucetModal: React.FC<FaucetModalProps> = ({
         </p>
 
         <div className="form-group">
-          <label>Funding Token ({fundingSymbol || "USDC"})</label>
+          <label>Funding Token ({fundingSymbol || "USDC"} — {fundingDecimals} Decimals)</label>
           <div style={{ display: "flex", gap: "0.5rem" }}>
             <input
               type="number"
@@ -76,7 +80,7 @@ export const FaucetModal: React.FC<FaucetModalProps> = ({
         </div>
 
         <div className="form-group">
-          <label>Reward Token ({rewardSymbol || "GOV"})</label>
+          <label>Reward Token ({rewardSymbol || "GOV"} — {rewardDecimals} Decimals)</label>
           <div style={{ display: "flex", gap: "0.5rem" }}>
             <input
               type="number"

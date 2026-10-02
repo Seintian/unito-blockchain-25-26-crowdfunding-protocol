@@ -1,5 +1,6 @@
-import React, { useState } from "react";
-import { ethers } from "ethers";
+import React, { useState, useEffect } from "react";
+import { ethers, Contract, BrowserProvider } from "ethers";
+import { ERC20_ABI } from "../contracts/contracts";
 
 interface CreateCampaignModalProps {
   isOpen: boolean;
@@ -7,6 +8,7 @@ interface CreateCampaignModalProps {
   factoryAddress: string;
   defaultFundingToken: string;
   defaultRewardToken: string;
+  provider: BrowserProvider | null;
   onCreateCampaign: (
     fundingToken: string,
     rewardToken: string,
@@ -24,6 +26,7 @@ export const CreateCampaignModal: React.FC<CreateCampaignModalProps> = ({
   factoryAddress,
   defaultFundingToken,
   defaultRewardToken,
+  provider,
   onCreateCampaign,
   onApprove,
   txPending,
@@ -35,14 +38,93 @@ export const CreateCampaignModal: React.FC<CreateCampaignModalProps> = ({
   const [durationDays, setDurationDays] = useState("14");
   const [step, setStep] = useState<"approve" | "create">("approve");
 
+  const [fundingDecimals, setFundingDecimals] = useState<number>(18);
+  const [rewardDecimals, setRewardDecimals] = useState<number>(18);
+  const [fundingSymbol, setFundingSymbol] = useState<string>("FND");
+  const [rewardSymbol, setRewardSymbol] = useState<string>("RWD");
+
+  useEffect(() => {
+    let isCancelled = false;
+    const loadTokenInfo = async () => {
+      if (!provider) return;
+
+      if (ethers.isAddress(fundingToken)) {
+        try {
+          const f = new Contract(fundingToken, ERC20_ABI, provider);
+          const [sym, dec] = await Promise.all([f.symbol(), f.decimals()]);
+          if (!isCancelled) {
+            setFundingSymbol(sym);
+            setFundingDecimals(Number(dec));
+          }
+        } catch {
+          if (!isCancelled) {
+            setFundingSymbol("FND");
+            setFundingDecimals(18);
+          }
+        }
+      }
+
+      if (ethers.isAddress(rewardToken)) {
+        try {
+          const r = new Contract(rewardToken, ERC20_ABI, provider);
+          const [sym, dec] = await Promise.all([r.symbol(), r.decimals()]);
+          if (!isCancelled) {
+            setRewardSymbol(sym);
+            setRewardDecimals(Number(dec));
+          }
+        } catch {
+          if (!isCancelled) {
+            setRewardSymbol("RWD");
+            setRewardDecimals(18);
+          }
+        }
+      }
+    };
+
+    loadTokenInfo();
+    return () => {
+      isCancelled = true;
+    };
+  }, [fundingToken, rewardToken, provider]);
+
   if (!isOpen) return null;
 
-  const thresholdBigInt = ethers.parseEther(thresholdInput || "0");
-  const rewardRateBigInt = ethers.parseEther(rewardRateInput || "0");
+  const isSameToken =
+    ethers.isAddress(fundingToken) &&
+    ethers.isAddress(rewardToken) &&
+    fundingToken.toLowerCase() === rewardToken.toLowerCase();
+
+  // Multi-decimal calculation per ADR-004
+  const rateScalar = 18 + rewardDecimals - fundingDecimals;
+  let rewardRateBigInt = 0n;
+  try {
+    if (rateScalar >= 0) {
+      rewardRateBigInt = ethers.parseUnits(rewardRateInput || "0", rateScalar);
+    } else {
+      rewardRateBigInt =
+        ethers.parseUnits(rewardRateInput || "0", 0) / 10n ** BigInt(-rateScalar);
+    }
+  } catch {
+    rewardRateBigInt = 0n;
+  }
+
+  let thresholdBigInt = 0n;
+  try {
+    thresholdBigInt = ethers.parseUnits(thresholdInput || "0", fundingDecimals);
+  } catch {
+    thresholdBigInt = 0n;
+  }
+
   const requiredCollateral =
-    (thresholdBigInt * rewardRateBigInt) / ethers.parseEther("1");
+    thresholdBigInt > 0n && rewardRateBigInt > 0n
+      ? (thresholdBigInt * rewardRateBigInt) / 10n ** 18n
+      : 0n;
 
   const handleApprove = async () => {
+    if (isSameToken) {
+      alert("Funding token and Reward token cannot be the same address.");
+      return;
+    }
     try {
       await onApprove(rewardToken, factoryAddress, requiredCollateral);
       setStep("create");
@@ -52,6 +134,10 @@ export const CreateCampaignModal: React.FC<CreateCampaignModalProps> = ({
   };
 
   const handleCreate = async () => {
+    if (isSameToken) {
+      alert("Funding token and Reward token cannot be the same address.");
+      return;
+    }
     try {
       const durationSeconds = Number(durationDays) * 24 * 60 * 60;
       await onCreateCampaign(
@@ -77,8 +163,26 @@ export const CreateCampaignModal: React.FC<CreateCampaignModalProps> = ({
           </button>
         </div>
 
+        {isSameToken && (
+          <div
+            style={{
+              background: "rgba(239, 68, 68, 0.15)",
+              border: "1px solid var(--accent-danger)",
+              padding: "0.75rem",
+              borderRadius: "6px",
+              marginBottom: "1rem",
+              fontSize: "0.85rem",
+              color: "#f87171",
+            }}
+          >
+            ⚠️ Funding Token and Reward Token must be distinct contracts.
+          </div>
+        )}
+
         <div className="form-group">
-          <label>Funding Token Contract</label>
+          <label>
+            Funding Token Contract ({fundingSymbol} — {fundingDecimals} Decimals)
+          </label>
           <input
             type="text"
             className="form-input"
@@ -88,7 +192,9 @@ export const CreateCampaignModal: React.FC<CreateCampaignModalProps> = ({
         </div>
 
         <div className="form-group">
-          <label>Reward Token Contract</label>
+          <label>
+            Reward Token Contract ({rewardSymbol} — {rewardDecimals} Decimals)
+          </label>
           <input
             type="text"
             className="form-input"
@@ -99,7 +205,7 @@ export const CreateCampaignModal: React.FC<CreateCampaignModalProps> = ({
 
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1rem" }}>
           <div className="form-group">
-            <label>Funding Goal (Threshold)</label>
+            <label>Funding Goal ({fundingSymbol})</label>
             <input
               type="number"
               className="form-input"
@@ -116,7 +222,9 @@ export const CreateCampaignModal: React.FC<CreateCampaignModalProps> = ({
               value={rewardRateInput}
               onChange={(e) => setRewardRateInput(e.target.value)}
             />
-            <p className="form-help">{rewardRateInput} Reward : 1 Funding</p>
+            <p className="form-help">
+              {rewardRateInput} {rewardSymbol} : 1 {fundingSymbol}
+            </p>
           </div>
         </div>
 
@@ -142,7 +250,7 @@ export const CreateCampaignModal: React.FC<CreateCampaignModalProps> = ({
             Mandatory Upfront Escrow Collateral:
           </div>
           <div style={{ fontSize: "1.2rem", fontWeight: 700, color: "#a855f7" }}>
-            {ethers.formatEther(requiredCollateral)} Reward Tokens
+            {ethers.formatUnits(requiredCollateral, rewardDecimals)} {rewardSymbol}
           </div>
           <p style={{ fontSize: "0.75rem", color: "var(--text-muted)", marginTop: "0.25rem" }}>
             100% of required reward tokens must be deposited into escrow to eliminate counterparty risk.
@@ -154,11 +262,19 @@ export const CreateCampaignModal: React.FC<CreateCampaignModalProps> = ({
             Cancel
           </button>
           {step === "approve" ? (
-            <button className="btn btn-primary" onClick={handleApprove} disabled={txPending}>
-              {txPending ? "Approving..." : "Step 1: Approve Collateral"}
+            <button
+              className="btn btn-primary"
+              onClick={handleApprove}
+              disabled={txPending || isSameToken || requiredCollateral === 0n}
+            >
+              {txPending ? "Approving..." : `Step 1: Approve ${rewardSymbol} Collateral`}
             </button>
           ) : (
-            <button className="btn btn-success" onClick={handleCreate} disabled={txPending}>
+            <button
+              className="btn btn-success"
+              onClick={handleCreate}
+              disabled={txPending || isSameToken || requiredCollateral === 0n}
+            >
               {txPending ? "Deploying..." : "Step 2: Deploy Campaign"}
             </button>
           )}

@@ -12,6 +12,7 @@ interface CampaignCardProps {
   onClaimRefund: (campaignAddress: string) => Promise<void>;
   onClaimFunds: (campaignAddress: string) => Promise<void>;
   onRecoverCollateral: (campaignAddress: string) => Promise<void>;
+  onRecoverExcessRewards: (campaignAddress: string) => Promise<void>;
   txPending: boolean;
 }
 
@@ -25,6 +26,7 @@ export const CampaignCard: React.FC<CampaignCardProps> = ({
   onClaimRefund,
   onClaimFunds,
   onRecoverCollateral,
+  onRecoverExcessRewards,
   txPending,
 }) => {
   const [pledgeInput, setPledgeInput] = useState("500");
@@ -45,9 +47,10 @@ export const CampaignCard: React.FC<CampaignCardProps> = ({
 
   const now = Math.floor(Date.now() / 1000);
   const secondsRemaining = campaign.deadline - now;
-  const isExpired = secondsRemaining <= 0;
+  const isExpired = campaign.state === 2 || (campaign.state === 0 && secondsRemaining <= 0);
 
   const formatTime = () => {
+    if (campaign.state === 1) return "Goal Achieved";
     if (isExpired) return "Deadline Passed";
     const days = Math.floor(secondsRemaining / 86400);
     const hours = Math.floor((secondsRemaining % 86400) / 3600);
@@ -58,9 +61,16 @@ export const CampaignCard: React.FC<CampaignCardProps> = ({
 
   const stateBadge = () => {
     if (campaign.state === 1) return <span className="badge badge-successful">Successful</span>;
-    if (campaign.state === 2 || isExpired) return <span className="badge badge-expired">Expired</span>;
+    if (isExpired) return <span className="badge badge-expired">Expired</span>;
     return <span className="badge badge-active">Active</span>;
   };
+
+  // Accurate multi-decimal reward multiplier calculation
+  const oneFundingUnit = 10n ** BigInt(campaign.fundingDecimals);
+  const rewardForOneUnit = (oneFundingUnit * campaign.rewardRate) / 10n ** 18n;
+  const humanReadableRate = parseFloat(
+    ethers.formatUnits(rewardForOneUnit, campaign.rewardDecimals)
+  ).toLocaleString(undefined, { maximumFractionDigits: 4 });
 
   const isCreator = account && campaign.creator.toLowerCase() === account.toLowerCase();
   const pledgeAmountBigInt = ethers.parseUnits(pledgeInput || "0", campaign.fundingDecimals);
@@ -93,6 +103,10 @@ export const CampaignCard: React.FC<CampaignCardProps> = ({
     } catch (err: any) {
       alert("Withdraw failed: " + err.message);
     }
+  };
+
+  const handleSetMaxWithdraw = () => {
+    setWithdrawInput(ethers.formatUnits(campaign.userContribution, campaign.fundingDecimals));
   };
 
   return (
@@ -133,7 +147,7 @@ export const CampaignCard: React.FC<CampaignCardProps> = ({
         <div className="metric-item">
           <span className="metric-label">Reward Rate</span>
           <span className="metric-val">
-            {formatUnits(campaign.rewardRate, 18)} {campaign.rewardSymbol} / {campaign.fundingSymbol}
+            {humanReadableRate} {campaign.rewardSymbol} / {campaign.fundingSymbol}
           </span>
         </div>
 
@@ -142,6 +156,28 @@ export const CampaignCard: React.FC<CampaignCardProps> = ({
           <span className="metric-val">{formatTime()}</span>
         </div>
       </div>
+
+      {/* Remaining to goal notice */}
+      {campaign.state === 0 && !isExpired && (
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "space-between",
+            fontSize: "0.75rem",
+            color: "var(--text-secondary)",
+            marginBottom: "0.75rem",
+            padding: "0.25rem 0.5rem",
+            background: "rgba(255, 255, 255, 0.03)",
+            borderRadius: "6px",
+          }}
+        >
+          <span>Remaining to Goal:</span>
+          <strong>
+            {formatUnits(campaign.remainingToThreshold, campaign.fundingDecimals)}{" "}
+            {campaign.fundingSymbol}
+          </strong>
+        </div>
+      )}
 
       {/* User's contribution badge */}
       {account && campaign.userContribution > 0n && (
@@ -197,18 +233,47 @@ export const CampaignCard: React.FC<CampaignCardProps> = ({
               )}
             </div>
 
-            {/* Flexible Early Withdrawal before threshold */}
+            {/* Flexible Early Withdrawal before threshold with partial support */}
             {campaign.userContribution > 0n && (
-              <div style={{ marginTop: "0.5rem" }}>
-                <button
-                  className="btn btn-secondary"
-                  style={{ width: "100%", fontSize: "0.8rem" }}
-                  onClick={handleWithdraw}
-                  disabled={txPending}
-                >
-                  Withdraw Pledge ({formatUnits(campaign.userContribution, campaign.fundingDecimals)}{" "}
-                  {campaign.fundingSymbol})
-                </button>
+              <div
+                style={{
+                  marginTop: "0.75rem",
+                  padding: "0.5rem",
+                  background: "rgba(255, 255, 255, 0.02)",
+                  borderRadius: "6px",
+                  border: "1px dashed var(--border-color)",
+                }}
+              >
+                <div style={{ fontSize: "0.75rem", color: "var(--text-muted)", marginBottom: "0.3rem" }}>
+                  Early Withdrawal (Partial or Full):
+                </div>
+                <div style={{ display: "flex", gap: "0.4rem" }}>
+                  <input
+                    type="number"
+                    className="form-input"
+                    style={{ fontSize: "0.8rem", padding: "0.3rem 0.5rem" }}
+                    placeholder="Amount to withdraw"
+                    value={withdrawInput}
+                    onChange={(e) => setWithdrawInput(e.target.value)}
+                    disabled={txPending}
+                  />
+                  <button
+                    className="btn btn-secondary"
+                    style={{ padding: "0.3rem 0.5rem", fontSize: "0.75rem" }}
+                    onClick={handleSetMaxWithdraw}
+                    disabled={txPending}
+                  >
+                    Max
+                  </button>
+                  <button
+                    className="btn btn-secondary"
+                    style={{ fontSize: "0.8rem", whiteSpace: "nowrap" }}
+                    onClick={handleWithdraw}
+                    disabled={txPending}
+                  >
+                    Withdraw
+                  </button>
+                </div>
               </div>
             )}
           </>
@@ -225,7 +290,7 @@ export const CampaignCard: React.FC<CampaignCardProps> = ({
               >
                 Claim Rewards (
                 {formatUnits(
-                  (campaign.userContribution * campaign.rewardRate) / ethers.parseEther("1"),
+                  (campaign.userContribution * campaign.rewardRate) / 10n ** 18n,
                   campaign.rewardDecimals
                 )}{" "}
                 {campaign.rewardSymbol})
@@ -255,11 +320,24 @@ export const CampaignCard: React.FC<CampaignCardProps> = ({
                 ✓ Creator Funds Claimed
               </div>
             )}
+
+            {/* Excess Reward Dust Recovery for Creator */}
+            {isCreator && (
+              <button
+                className="btn btn-secondary"
+                style={{ fontSize: "0.8rem" }}
+                onClick={() => onRecoverExcessRewards(campaign.address)}
+                disabled={txPending}
+                title="Recover unallocated rounding dust and surplus reward collateral"
+              >
+                Sweep Reward Dust / Surplus
+              </button>
+            )}
           </div>
         )}
 
         {/* Scenario 3: Campaign is Expired */}
-        {(campaign.state === 2 || (campaign.state === 0 && isExpired)) && (
+        {isExpired && campaign.state !== 1 && (
           <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}>
             {account && campaign.userContribution > 0n && !campaign.userRefundsClaimed && (
               <button
