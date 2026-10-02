@@ -134,8 +134,47 @@ async function main() {
     `Backers met threshold on Campaign 2! State is now: ${await c2.state()} (1 = Successful)`
   );
 
+  // 3. Create Expired / Failed Campaign (3,000 threshold, 1:1 reward, 5 seconds duration)
+  console.log("Creating Expired Campaign (Open Source Zero-Knowledge Toolkit)...");
+  const threshold3 = ethers.parseEther("3000");
+  const rewardRate3 = ethers.parseEther("1");
+  const duration3 = 5; // 5 seconds duration
+
+  const tx3 = await factory.connect(creator).createCampaign(
+    fundingTokenAddress!,
+    rewardTokenAddress!,
+    threshold3,
+    rewardRate3,
+    duration3
+  );
+  await tx3.wait();
+
+  const campaignsAfter3 = await factory.getDeployedCampaigns();
+  const campaign3Address = campaignsAfter3[campaignsAfter3.length - 1];
+  console.log(`Expired Campaign deployed at: ${campaign3Address}`);
+
+  const c3 = (await ethers.getContractAt(
+    "CrowdfundingCampaign",
+    campaign3Address
+  )) as CrowdfundingCampaign;
+  // Backer1 pledges 500 out of 3,000
+  await fundingToken.connect(backer1).approve(campaign3Address, ethers.parseEther("500"));
+  await c3.connect(backer1).pledge(ethers.parseEther("500"));
+  console.log(`Backer 1 pledged 500 USDC to Campaign 3 (Total: 500 / 3,000)`);
+
+  // If local network, advance time past deadline
+  try {
+    await ethers.provider.send("evm_increaseTime", [10]);
+    await ethers.provider.send("evm_mine", []);
+    console.log(
+      `Campaign 3 expired as planned! State is now: ${await c3.state()} (2 = Expired). Ready for refund & collateral recovery demo.`
+    );
+  } catch {
+    console.log("Network does not support evm_increaseTime (live testnet).");
+  }
+
   console.log("==================================================");
-  console.log("Seeding complete! 2 live campaigns configured.");
+  console.log("Seeding complete! 3 live campaigns configured across all lifecycle states (Active, Successful, Expired).");
   console.log("==================================================");
 }
 
